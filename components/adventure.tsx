@@ -1,4 +1,12 @@
 "use client";
+import ReservationIntegrations from "./reservation-integrations";
+import {
+  cancellationInstant,
+  cancellationAlerts,
+  matchDestination,
+  currentStays,
+} from "@/lib/reservations";
+
 import { useEffect, useState } from "react";
 import {
   loadWorkspace,
@@ -7,6 +15,7 @@ import {
 } from "@/lib/client-store";
 import { cloudMode } from "@/lib/supabase";
 import {
+  Mail,
   Compass,
   LayoutDashboard,
   Map,
@@ -57,7 +66,7 @@ import {
   shareGear,
   newExpeditionRecords,
 } from "@/lib/operations";
-type Tab = "dashboard" | Kind | "travel" | "settings";
+type Tab = "dashboard" | Kind | "travel" | "settings" | "integrations";
 type Field = {
   key: string;
   en: string;
@@ -132,7 +141,17 @@ const fields: Record<Kind, Field[]> = {
     f("notes", "Notes / evidence", "הערות / אסמכתאות", "textarea"),
     ...verification,
   ],
-  destinations: [...base, f("country", "Country", "מדינה"), ...dateFields],
+  destinations: [
+    ...base,
+    f("country", "Country", "מדינה"),
+    f(
+      "aliases",
+      "Alternative destination names (comma-separated)",
+      "שמות חלופיים ליעד (מופרדים בפסיקים)",
+    ),
+    f("timezone", "IANA timezone", "אזור זמן IANA"),
+    ...dateFields,
+  ],
   segments: [
     ...base,
     f("destinationId", "Destination", "יעד", "destination"),
@@ -160,6 +179,14 @@ const fields: Record<Kind, Field[]> = {
       "Cancelled",
     ]),
     f("provider", "Provider", "ספק"),
+    f("bookingSource", "Reservation source", "מקור ההזמנה", "select", [
+      "Booking.com",
+      "Hostelworld",
+      "Direct",
+      "Other",
+    ]),
+    f("propertyName", "Property name", "שם מקום האירוח"),
+    f("stayAddress", "Accommodation address", "כתובת מקום האירוח"),
     f("category", "Category", "קטגוריה", "select", [
       "Flights",
       "Accommodation",
@@ -192,7 +219,40 @@ const fields: Record<Kind, Field[]> = {
     f("balanceDate", "Balance due", "מועד יתרה לתשלום", "date"),
     f("reference", "Confirmation reference", "מספר אישור"),
     f("cancellation", "Cancellation terms", "תנאי ביטול", "textarea"),
-    f("cancelDate", "Cancellation deadline", "מועד ביטול אחרון", "date"),
+    f(
+      "cancelDate",
+      "Legacy cancellation date (time unverified)",
+      "תאריך ביטול קודם (שעה לא מאומתת)",
+      "date",
+    ),
+    f("cancellationPolicy", "Cancellation policy", "מדיניות ביטול", "select", [
+      "Unknown",
+      "Free cancellation",
+      "Non-refundable",
+    ]),
+    f(
+      "freeCancellationLocal",
+      "Free cancellation ends (property local date and time)",
+      "סיום ביטול חינם (תאריך ושעה מקומיים בנכס)",
+      "datetime-local",
+    ),
+    f(
+      "cancellationTimezone",
+      "Deadline timezone (e.g. America/Guatemala)",
+      "אזור זמן למועד (למשל America/Guatemala)",
+    ),
+    f(
+      "cancellationVerified",
+      "Exact deadline and timezone verified against provider",
+      "המועד המדויק ואזור הזמן אומתו מול הספק",
+      "checkbox",
+    ),
+    f(
+      "emailReminder",
+      "Email me one week before free cancellation ends",
+      "שליחת תזכורת בדוא״ל שבוע לפני סיום ביטול חינם",
+      "checkbox",
+    ),
     f("source", "Booking URL", "קישור להזמנה", "url"),
     f(
       "document",
@@ -370,6 +430,7 @@ const nav = [
   ["segments", "Itinerary", "מסלול הטיול", Map],
   ["tasks", "Preparation", "הכנות לדרך", CheckSquare],
   ["bookings", "Bookings", "הזמנות", Ticket],
+  ["integrations", "Reservation sync", "סנכרון הזמנות", Mail],
   ["transport", "Connections", "תחבורה ומעברים", ArrowLeftRight],
   ["gear", "Gear & packing", "ציוד ואריזה", Backpack],
   ["expenses", "Budget", "תקציב והוצאות", Wallet],
@@ -381,7 +442,7 @@ export default function Adventure({
   accountEmail,
   onSignOut,
 }: { accountEmail?: string; onSignOut?: () => void } = {}) {
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [state, setState] = useState<State | null>(null),
     [lang, setLang] = useState<"he" | "en">("he"),
     [tab, setTab] = useState<Tab>("dashboard"),
@@ -401,9 +462,20 @@ export default function Adventure({
     );
   const t = (en: string, he: string) => (lang === "he" ? he : en);
   useEffect(() => {
+    const update = () => setNow(Date.now());
+    const interval = setInterval(update, 60000);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
+  useEffect(() => {
     loadWorkspace()
       .then((s) => {
         setState(s);
+        if (new URLSearchParams(window.location.search).has("gmail"))
+          setTab("integrations");
         if (!cloudMode)
           localStorage.setItem("adventure-cache", JSON.stringify(s));
         const l = localStorage.getItem("adventure-lang");
@@ -557,6 +629,35 @@ export default function Adventure({
           },
     });
   async function saveRecord(kind: Kind, record: Entry) {
+    if (kind === "bookings") {
+      try {
+        record = { ...record };
+        if (
+          record.cancellationPolicy === "Free cancellation" &&
+          record.freeCancellationLocal
+        ) {
+          record.freeCancellationAt = cancellationInstant(
+            str(record, "freeCancellationLocal"),
+            str(record, "cancellationTimezone"),
+          );
+        } else {
+          record.freeCancellationAt = "";
+          record.cancellationVerified = false;
+        }
+        if (!record.destinationId && record.stayAddress) {
+          const destination = matchDestination(
+            str(record, "stayAddress"),
+            records.destinations,
+          );
+          if (destination) record.destinationId = destination;
+        }
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Invalid cancellation deadline",
+        );
+        return;
+      }
+    }
     if (
       kind === "gear" &&
       record.ownership === "buy" &&
@@ -910,6 +1011,26 @@ export default function Adventure({
                 <button className="record-title" onClick={() => open(kind, r)}>
                   {r.title}
                 </button>
+                {kind === "bookings" && r.stayAddress && (
+                  <p className="stay-address">{str(r, "stayAddress")}</p>
+                )}
+                {kind === "bookings" && r.freeCancellationAt && (
+                  <p className="muted">
+                    {t("Free cancellation ends", "ביטול חינם עד")}:{" "}
+                    {str(r, "freeCancellationLocal")} ·{" "}
+                    {str(r, "cancellationTimezone")}{" "}
+                    {r.cancellationVerified
+                      ? "✓"
+                      : t("Needs verification", "דורש אימות")}
+                  </p>
+                )}
+                {kind === "destinations" &&
+                  currentStays(records, r.id, travelDate).map((stay) => (
+                    <p className="stay-address" key={stay.id}>
+                      {t("Current stay", "לינה נוכחית")}: {stay.title} ·{" "}
+                      {str(stay, "stayAddress")}
+                    </p>
+                  ))}
                 <div className="record-meta">
                   {r.date && (
                     <span>
@@ -1327,6 +1448,39 @@ export default function Adventure({
                   </div>
                 </div>
               </section>
+              {cancellationAlerts(records.bookings, now).length > 0 && (
+                <section className="cancellation-watch panel">
+                  <div className="section-title">
+                    <h2>
+                      {t(
+                        "Free cancellation is ending soon",
+                        "ביטול חינם מסתיים בקרוב",
+                      )}
+                    </h2>
+                    <button onClick={() => go("integrations")}>
+                      {t("Reservation sync", "סנכרון הזמנות")}
+                    </button>
+                  </div>
+                  {cancellationAlerts(records.bookings, now).map(
+                    ({ booking }) => (
+                      <button
+                        className="action-row"
+                        key={booking.id}
+                        onClick={() => open("bookings", booking)}
+                      >
+                        <AlertTriangle size={17} />
+                        <span>
+                          <strong>{booking.title}</strong>
+                          <small>
+                            {str(booking, "freeCancellationLocal")} ·{" "}
+                            {str(booking, "cancellationTimezone")}
+                          </small>
+                        </span>
+                      </button>
+                    ),
+                  )}
+                </section>
+              )}
               <section className="stats">
                 <button onClick={() => go("tasks")}>
                   <span className="stat-label">
@@ -1528,6 +1682,17 @@ export default function Adventure({
                 <span>ADVENTURE OS / {expedition.start.slice(0, 4)}</span>
               </div>
             </>
+          )}
+          {tab === "integrations" && (
+            <ReservationIntegrations
+              state={state}
+              lang={lang}
+              onRefresh={() =>
+                loadWorkspace()
+                  .then(setState)
+                  .catch((e) => setError(e.message))
+              }
+            />
           )}
           {tab === "segments" && (
             <>
@@ -1856,6 +2021,18 @@ export default function Adventure({
                           {str(r, "departure") || str(r, "date")}{" "}
                           {str(r, "reference")}
                         </span>
+                        {r.stayAddress && (
+                          <p className="stay-address">
+                            {str(r, "stayAddress")}
+                          </p>
+                        )}
+                        {r.freeCancellationAt && (
+                          <p>
+                            {t("Free cancellation until", "ביטול חינם עד")}{" "}
+                            {str(r, "freeCancellationLocal")} ·{" "}
+                            {str(r, "cancellationTimezone")}
+                          </p>
+                        )}
                         <p>{str(r, "notes")}</p>
                       </button>
                     ))}
@@ -2208,6 +2385,13 @@ export default function Adventure({
                               ...editor,
                               record: {
                                 ...editor.record,
+                                ...([
+                                  "freeCancellationLocal",
+                                  "cancellationTimezone",
+                                  "cancellationPolicy",
+                                ].includes(field.key)
+                                  ? { cancellationVerified: false }
+                                  : {}),
                                 [field.key]: e.target.value,
                               },
                             })
@@ -2223,6 +2407,13 @@ export default function Adventure({
                               ...editor,
                               record: {
                                 ...editor.record,
+                                ...([
+                                  "freeCancellationLocal",
+                                  "cancellationTimezone",
+                                  "cancellationPolicy",
+                                ].includes(field.key)
+                                  ? { cancellationVerified: false }
+                                  : {}),
                                 [field.key]: e.target.checked,
                               },
                             })
@@ -2250,6 +2441,13 @@ export default function Adventure({
                               ...editor,
                               record: {
                                 ...editor.record,
+                                ...([
+                                  "freeCancellationLocal",
+                                  "cancellationTimezone",
+                                  "cancellationPolicy",
+                                ].includes(field.key)
+                                  ? { cancellationVerified: false }
+                                  : {}),
                                 [field.key]:
                                   field.type === "dependencies"
                                     ? Array.from(e.target.selectedOptions).map(
@@ -2286,6 +2484,13 @@ export default function Adventure({
                               ...editor,
                               record: {
                                 ...editor.record,
+                                ...([
+                                  "freeCancellationLocal",
+                                  "cancellationTimezone",
+                                  "cancellationPolicy",
+                                ].includes(field.key)
+                                  ? { cancellationVerified: false }
+                                  : {}),
                                 [field.key]:
                                   field.type === "number"
                                     ? e.target.value === ""

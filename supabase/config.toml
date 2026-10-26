@@ -1,0 +1,6 @@
+[functions.gmail-connect]
+verify_jwt = false
+# Callback uses a single-use OAuth state; all POST actions verify Supabase Auth explicitly.
+[functions.reservation-jobs]
+verify_jwt = false
+# Background calls must present the separately configured job secret.

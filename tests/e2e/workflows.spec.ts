@@ -154,3 +154,75 @@ test("API rejects stale writes and invalid backup data", async ({
     ).status(),
   ).toBe(400);
 });
+test("a verified cancellation cutoff and matched staying address persist together", async ({
+  page,
+  request,
+}) => {
+  const s: State = await (await request.get("/api/state")).json();
+  s.records[s.activeId].destinations = [
+    { id: "antigua-test", title: "Antigua", status: "tentative", notes: "" },
+  ];
+  expect((await request.put("/api/state", { data: s })).ok()).toBe(true);
+  await page.reload();
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Bookings", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add new", exact: true }).click();
+  await page
+    .getByLabel("Booking name", { exact: true })
+    .fill("Test accommodation");
+  await page
+    .getByLabel("Booking status", { exact: true })
+    .selectOption("Booked");
+  await page
+    .getByLabel("Category", { exact: true })
+    .selectOption("Accommodation");
+  await page
+    .getByLabel("Accommodation address", { exact: true })
+    .fill("Calle 5, Antigua, Guatemala");
+  await page.getByLabel("Start date", { exact: true }).fill("2027-04-17");
+  await page.getByLabel("End date", { exact: true }).fill("2027-04-20");
+  await page
+    .getByLabel("Cancellation policy", { exact: true })
+    .selectOption("Free cancellation");
+  const date =
+    new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) + "T18:00";
+  await page
+    .getByLabel("Free cancellation ends (property local date and time)", {
+      exact: true,
+    })
+    .fill(date);
+  await page
+    .getByLabel("Deadline timezone (e.g. America/Guatemala)", { exact: true })
+    .fill("UTC");
+  await page
+    .getByLabel("Exact deadline and timezone verified against provider", {
+      exact: true,
+    })
+    .check();
+  await page.getByRole("button", { name: "Save record", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Test accommodation", exact: true }),
+  ).toBeVisible();
+  const saved = await (await request.get("/api/state")).json();
+  const b = saved.records[s.activeId].bookings[0];
+  expect(b.destinationId).toBe("antigua-test");
+  expect(b.cancellationVerified).toBe(true);
+  expect(b.freeCancellationAt).toBe(date + ":00.000Z");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Overview", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Free cancellation is ending soon" }),
+  ).toBeVisible();
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Travel mode", exact: true })
+    .click();
+  await page.getByLabel("Travel date", { exact: true }).fill("2027-04-18");
+  await expect(
+    page.getByText("Calle 5, Antigua, Guatemala", { exact: true }),
+  ).toBeVisible();
+});

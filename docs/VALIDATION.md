@@ -28,3 +28,7 @@ This evidence establishes the local development workflow and tested MVP journeys
 - GitHub API requests were blocked by the current environment policy. Supabase project creation, applying the migration to that project, configuring GitHub repository variables and enabling Pages remain external prerequisites. No service-role key or database file is included in the site.
 
 See DEPLOYMENT.md for the exact one-time configuration. A live deployment is not claimed until the GitHub deployment and real Supabase sign-in succeed.
+
+## Gmail reservations and cancellation watch
+
+The reservation update adds tested core calculations, sender-aware conservative parsing, dated accommodation linkage, inbox/token isolation and atomic import merging. Both Supabase Edge Functions pass Deno type checking. The local browser suite passes six tests, including the new verified cutoff/address journey; the static cloud suite passes four tests. Server and Pages builds pass. Tests use synthetic messages and isolated databases; no real Gmail account was connected, no live reservation imported and no notification email sent. The new backend migration, Google OAuth credentials, Edge Function deployment and cron schedule require project-owner setup described in RESERVATIONS.md. The website module alone does not establish active background synchronization.

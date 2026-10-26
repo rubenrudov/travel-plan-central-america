@@ -28,6 +28,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check Gmail background functions
+        run: deno check supabase/functions/gmail-connect/index.ts supabase/functions/reservation-jobs/index.ts
       - name: Validate server build
         run: npm run build
       - name: Select installed browser

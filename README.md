@@ -68,3 +68,7 @@ For a private local/server installation, run `npm run build` then `npm start`, r
 The static cloud edition has Supabase Auth, per-user ownership/RLS and a transactional JSON workspace store. It requires the one-time configuration in [DEPLOYMENT.md](docs/DEPLOYMENT.md). The unauthenticated SQLite edition remains for local use only. Private document storage and encrypted offline access are not implemented.
 
 See [architecture](docs/ARCHITECTURE.md) and [roadmap](docs/ROADMAP.md) for limits: cloud storage is a personal workspace per account; transport analysis is basic; offline cold launch is incomplete; attachment upload is not implemented. UI primitives are custom CSS/native controls rather than Tailwind/shadcn. Some seeded record content remains English when the interface is Hebrew.
+
+## Reservation sync and cancellation watch
+
+The **Reservation sync** module integrates Gmail confirmations from Booking.com and Hostelworld. Recognized authenticated confirmations can attach dated accommodation addresses to a uniquely matched destination; uncertain messages go to review. Exact verified free-cancellation cutoffs drive one-week in-app alerts and scheduled Gmail reminders. Backend activation requires Google OAuth credentials, the additional Supabase migration/functions and a cron job. See [RESERVATIONS.md](docs/RESERVATIONS.md) for setup, permissions, supported formats and delivery limitations. This integration does not log into travel accounts or cancel reservations.

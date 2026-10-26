@@ -1,3 +1,4 @@
+import { DateTime, IANAZone } from "luxon";
 import { z } from "zod";
 export const kinds = [
   "tasks",
@@ -24,6 +25,36 @@ export const recordSchema = z
   })
   .catchall(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
   .superRefine((r, ctx) => {
+    if (
+      r.freeCancellationAt &&
+      !z.iso.datetime({ offset: true }).safeParse(r.freeCancellationAt).success
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["freeCancellationAt"],
+        message: "Cancellation deadline must include a UTC offset",
+      });
+    if (r.cancellationVerified) {
+      const local = String(r.freeCancellationLocal || ""),
+        zone = String(r.cancellationTimezone || "");
+      const time = DateTime.fromISO(local, { zone });
+      if (
+        r.cancellationPolicy !== "Free cancellation" ||
+        !(zone === "UTC" || zone.includes("/")) ||
+        !IANAZone.isValidZone(zone) ||
+        !time.isValid ||
+        time.getPossibleOffsets().length !== 1 ||
+        time.toFormat("yyyy-MM-dd'T'HH:mm") !== local ||
+        time.toMillis() !== Date.parse(String(r.freeCancellationAt || ""))
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["cancellationVerified"],
+          message:
+            "Verify an exact, unambiguous free-cancellation deadline and timezone",
+        });
+    }
+
     for (const key of [
       "amount",
       "paid",

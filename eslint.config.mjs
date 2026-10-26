@@ -6,6 +6,7 @@ export default defineConfig([
   ...ts,
   globalIgnores([
     ".next/**",
+    "supabase/functions/**",
     ".pages-next/**",
     "out/**",
     "next-env.d.ts",

@@ -124,3 +124,89 @@ test("mobile sign-in has no horizontal overflow", async ({ page }) => {
     ),
   ).toBe(true);
 });
+test("reservation review imports into the selected destination and refreshes the workspace", async ({
+  page,
+}) => {
+  const state = seed();
+  let imported = false;
+  const candidate = {
+    id: "pending",
+    title: "Reviewed hostel",
+    status: "Booked",
+    notes: "Imported confirmation",
+    date: "2027-04-17",
+    end: "2027-04-20",
+    stayAddress: "Calle 5, Antigua, Guatemala",
+    bookingSource: "Booking.com",
+    reference: "TEST1234",
+    category: "Accommodation",
+    cancellationVerified: false,
+  };
+  await page.addInitScript(
+    ({ project, session }) => {
+      const ref = new URL(project).hostname.split(".")[0];
+      localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(session));
+      localStorage.setItem("adventure-lang", "en");
+    },
+    { project, session },
+  );
+  await page.route(`${project}/rest/v1/rpc/*`, (route) =>
+    route.fulfill({ json: state }),
+  );
+  await page.route(`${project}/rest/v1/reservation_inbox*`, (route) =>
+    route.fulfill({
+      json: imported
+        ? []
+        : [
+            {
+              id: "review-1",
+              provider: "Booking.com",
+              source_url: "https://mail.google.com/mail/",
+              candidate,
+              status: "review",
+            },
+          ],
+    }),
+  );
+  await page.route(`${project}/functions/v1/gmail-connect`, async (route) => {
+    const data = route.request().postDataJSON();
+    if (data.action === "apply") {
+      expect(data.destinationId).toBe("antigua");
+      state.records[state.activeId].bookings.push({
+        ...candidate,
+        id: "imported-review",
+        destinationId: "antigua",
+      });
+      state.revision++;
+      imported = true;
+      await route.fulfill({ json: { ok: true } });
+    } else
+      await route.fulfill({
+        json: { connected: true, email: "test@example.com" },
+      });
+  });
+  await page.goto("./");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Reservation sync", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Reviewed hostel" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Import into this expedition" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Reviewed hostel" }),
+  ).toHaveCount(0);
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Bookings", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Reviewed hostel", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Calle 5, Antigua, Guatemala", { exact: true }),
+  ).toBeVisible();
+});
