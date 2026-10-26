@@ -129,6 +129,7 @@ test("reservation review imports into the selected destination and refreshes the
 }) => {
   const state = seed();
   let imported = false;
+  let integrationRequests = 0;
   const candidate = {
     id: "pending",
     title: "Reviewed hostel",
@@ -169,6 +170,7 @@ test("reservation review imports into the selected destination and refreshes the
     }),
   );
   await page.route(`${project}/functions/v1/gmail-connect`, async (route) => {
+    integrationRequests++;
     const data = route.request().postDataJSON();
     if (data.action === "apply") {
       expect(data.destinationId).toBe("antigua");
@@ -189,6 +191,15 @@ test("reservation review imports into the selected destination and refreshes the
   await page
     .locator("nav")
     .getByRole("button", { name: "Reservation sync", exact: true })
+    .click();
+  expect(integrationRequests).toBe(0);
+  await expect(
+    page.getByRole("heading", { name: "In-app cancellation notifications" }),
+  ).toBeVisible();
+  await page
+    .getByText("Optional: connect Google / Gmail for reservation imports", {
+      exact: true,
+    })
     .click();
   await expect(
     page.getByRole("heading", { name: "Reviewed hostel" }),

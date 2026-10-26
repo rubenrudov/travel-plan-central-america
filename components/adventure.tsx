@@ -249,8 +249,8 @@ const fields: Record<Kind, Field[]> = {
     ),
     f(
       "emailReminder",
-      "Email me one week before free cancellation ends",
-      "שליחת תזכורת בדוא״ל שבוע לפני סיום ביטול חינם",
+      "Optional email reminder (requires connected Gmail)",
+      "תזכורת דוא״ל אופציונלית (דורשת Gmail מחובר)",
       "checkbox",
     ),
     f("source", "Booking URL", "קישור להזמנה", "url"),

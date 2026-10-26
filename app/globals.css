@@ -2121,3 +2121,18 @@ h3 {
 .section-title h2 > svg {
   vertical-align: middle;
 }
+.optional-gmail {
+  margin: 20px 0;
+}
+.optional-gmail > summary {
+  cursor: pointer;
+  padding: 15px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f0f3eb;
+  color: #7f8f73;
+  font-size: 12px;
+}
+.optional-gmail[open] > summary {
+  margin-bottom: 16px;
+}

@@ -60,6 +60,13 @@ export async function applyImport(
   )
     throw Error("Choose a destination in this expedition");
   const candidate = { ...item.candidate };
+  const previous = records.bookings.find(
+    (b: Record<string, unknown>) =>
+      candidate.reference &&
+      b.bookingSource === candidate.bookingSource &&
+      b.reference === candidate.reference,
+  );
+  if (!previous) candidate.emailReminder = false;
   candidate.id =
     "gmail-" +
     (
@@ -112,7 +119,7 @@ export async function applyImport(
       candidate.cancellationVerificationSource = "Authenticated provider email";
     }
   }
-  // New imports inherit the requested reminder default in SQL; existing opt-outs are preserved.
+  // New imported stays use in-app alerts only; existing explicit email choices are preserved.
   checked(
     await db.rpc("commit_reservation_import", {
       p_owner: owner,

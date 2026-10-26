@@ -1,6 +1,10 @@
 # Gmail reservation sync and cancellation reminders
 
-## What is implemented
+## Default: in-app notifications, no Google required
+
+Use Bookings to enter accommodation details and the verified free-cancellation cutoff. Overview shows the alert starting one week before that cutoff. No Gmail connection, Google token, new integration migration, Edge Function or cron job is required for these in-app alerts. They are shown while the app is open and do not notify you when it is closed. Email reminders default to OFF. The Gmail section is collapsed and makes no integration requests until you explicitly open it.
+
+## Optional Gmail integration
 
 Adventure OS connects to the Gmail mailbox receiving Booking.com and Hostelworld confirmations. This is an email integration, not a direct login to either travel account. No travel-account passwords are collected. An encrypted server-held Google refresh token enables scans and email reminders while the app is closed.
 
@@ -8,7 +12,7 @@ A scan processes up to 20 messages per batch and resumes its pagination on the n
 
 Unrecognized layouts, missing details, uncertain senders, unmatched destinations and incomplete changes appear in **Reservation sync → Needs your review**, with a link to the original Gmail message. The app does not retain raw email bodies, attachments or mailbox-wide exports. Unrelated senders are ignored. Generic parsing currently recognizes labeled English fields and some Hebrew labels, plus unambiguous ISO/English-month dates. Real provider layouts and other languages vary; they are not all supported. Do not treat the parser as an authoritative travel record.
 
-Cancellation deadlines are extracted only from explicit free-cancellation cutoff lines with an unambiguous date and time. Automatic verification also requires an authenticated provider sender and either an explicit IANA timezone on that line or an explicit property-local-time statement plus the matched destination’s configured timezone. Other formats remain unverified: open the booking, inspect the original policy, choose Free cancellation / Non-refundable / Unknown, enter the exact property-local cutoff and IANA timezone, and verify it. Changing the deadline/timezone/policy clears verification. A provider amendment replaces deadline information only when it can be parsed again; otherwise it clears verification to prevent stale alerts. Connecting Gmail opts imported stays into email reminders once their deadlines are verified; the booking editor can disable reminders for any stay. Existing opt-outs survive amendments. Real sanitized confirmation/update samples would help expand provider-specific formats; unsupported formats never receive guessed deadlines.
+Cancellation deadlines are extracted only from explicit free-cancellation cutoff lines with an unambiguous date and time. Automatic verification also requires an authenticated provider sender and either an explicit IANA timezone on that line or an explicit property-local-time statement plus the matched destination’s configured timezone. Other formats remain unverified: open the booking, inspect the original policy, choose Free cancellation / Non-refundable / Unknown, enter the exact property-local cutoff and IANA timezone, and verify it. Changing the deadline/timezone/policy clears verification. A provider amendment replaces deadline information only when it can be parsed again; otherwise it clears verification to prevent stale alerts. Imported stays default to in-app notifications only. Email reminders remain OFF unless you explicitly enable them for a booking; existing choices survive amendments. Real sanitized confirmation/update samples would help expand provider-specific formats; unsupported formats never receive guessed deadlines.
 
 Current accommodation is derived from dated confirmed stays with an address, rather than overwriting a destination's address permanently. Checkout day is excluded. Multiple overlapping stays remain visible. Travel mode shows the accommodation address on the dated booking.
 
