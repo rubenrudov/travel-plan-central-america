@@ -12,11 +12,12 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://zpvmiwnqywachfrpzvyl.supabase.co' }}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_ThlRhoC2N8_JAibOLnd8iA_L8PO-yW1' }}
       NEXT_PUBLIC_BASE_PATH: /travel-plan-central-america
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,11 +30,16 @@ jobs:
       - run: npm test
       - name: Validate server build
         run: npm run build
-      - name: Install browser
-        run: npx playwright install --with-deps chromium
-      - name: Locate Chromium
+      - name: Select installed browser
         run: |
-          browser_path=$(node -p "require('playwright').chromium.executablePath()")
+          if command -v google-chrome >/dev/null 2>&1; then
+            browser_path=$(command -v google-chrome)
+          elif command -v chromium >/dev/null 2>&1; then
+            browser_path=$(command -v chromium)
+          else
+            npx playwright install --with-deps chromium
+            browser_path=$(node -p "require('playwright').chromium.executablePath()")
+          fi
           echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE=$browser_path" >> "$GITHUB_ENV"
       - name: Test local server workflows
         run: npm run test:e2e
@@ -56,7 +62,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write
