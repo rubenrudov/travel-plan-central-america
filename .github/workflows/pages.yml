@@ -14,8 +14,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://zpvmiwnqywachfrpzvyl.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_ThlRhoC2N8_JAibOLnd8iA_L8PO-yW1' }}
       NEXT_PUBLIC_BASE_PATH: /travel-plan-central-america
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE=$browser_path" >> "$GITHUB_ENV"
       - name: Test local server workflows
         run: npm run test:e2e
-      - name: Build the Pages site (requires repository variables)
+      - name: Build the Pages site
         run: npm run build:pages
       - name: Test static site, authentication and synced workflows
         run: npm run test:pages

@@ -8,7 +8,7 @@ GitHub Pages hosts only the exported interface. Supabase provides email-link log
 2. In its SQL Editor, run the contents of [202610260001_workspaces.sql](../supabase/migrations/202610260001_workspaces.sql) once. It creates the workspace table, ownership policies and transactional save/load functions. Do not disable row-level security.
 3. In Authentication → URL Configuration, set **Site URL** to `https://rubenrudov.github.io/travel-plan-central-america/` and add that exact URL to **Redirect URLs**. Leave email authentication enabled. The sign-in link must be opened in the same browser that requested it because authentication uses PKCE.
 4. In Project Settings / Connect / API Keys, find the project URL and **publishable key** (legacy `anon` key also works). Never use `service_role`, `sb_secret_` or a database password. Public browser keys are safe only with the included RLS policies.
-5. In [GitHub repository variables](https://github.com/rubenrudov/travel-plan-central-america/settings/variables/actions), create these **Actions repository variables** (not environment-only variables):
+5. The workflow now includes the owner-provided public project URL and publishable key as defaults. No repository variables are required for this project. To override them later, in [GitHub repository variables](https://github.com/rubenrudov/travel-plan-central-america/settings/variables/actions), create these **Actions repository variables** (not environment-only variables):
 
    | Variable | Value |
    | --- | --- |
@@ -16,10 +16,10 @@ GitHub Pages hosts only the exported interface. Supabase provides email-link log
    | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Your publishable or legacy anon key |
 
 6. In [repository Pages settings](https://github.com/rubenrudov/travel-plan-central-america/settings/pages), choose **GitHub Actions** as the build/deployment source. Pages availability for private repositories depends on the GitHub plan; do not change repository visibility without reviewing the source data.
-7. Open [Actions](https://github.com/rubenrudov/travel-plan-central-america/actions/workflows/pages.yml), choose **Validate and deploy Adventure OS**, then **Run workflow** on `main`. The first push can fail its build until the variables are supplied. Re-run after configuring them.
+7. Open [Actions](https://github.com/rubenrudov/travel-plan-central-america/actions/workflows/pages.yml), choose **Validate and deploy Adventure OS**, then **Run workflow** on `main`. The build uses the configured public project defaults. Re-run after changing any configuration.
 8. After the deploy job succeeds, open `https://rubenrudov.github.io/travel-plan-central-america/`. Request a sign-in email, open it in the same browser and import a local backup via Settings if you want your existing records.
 
-The repository variables are compiled into the static browser bundle; they are configuration, not server secrets. Changing them requires a new workflow run. No Supabase service key or personal GitHub token is needed in the workflow: Pages deployment uses GitHub's short-lived `GITHUB_TOKEN` and OIDC with narrowly scoped permissions.
+The public project defaults (or repository-variable overrides) are compiled into the static browser bundle; they are configuration, not server secrets. Changing them requires a new workflow run. No Supabase service key or personal GitHub token is needed in the workflow: Pages deployment uses GitHub's short-lived `GITHUB_TOKEN` and OIDC with narrowly scoped permissions.
 
 ## Continuous deployment
 

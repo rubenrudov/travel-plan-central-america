@@ -4,7 +4,7 @@ A Hebrew-first personal expedition planner for Guatemala & Baja — 2027. Plan t
 
 ## Hosted site and continuous deployment
 
-The GitHub Pages edition uses Supabase email-link login and a private synchronized workspace per account. See **[the deployment guide](docs/DEPLOYMENT.md)** for creating the free project, applying the RLS migration, setting the two repository variables and enabling GitHub Pages. The workflow tests and deploys pushes to `main`; the site cannot sign in until Supabase is configured. The intended default URL is `https://rubenrudov.github.io/travel-plan-central-america/`.
+The GitHub Pages edition uses Supabase email-link login and a private synchronized workspace per account. See **[the deployment guide](docs/DEPLOYMENT.md)** for creating the free project, applying the RLS migration, reviewing the public project configuration and enabling GitHub Pages. The workflow tests and deploys pushes to `main`; the site cannot sign in until Supabase is configured. The intended default URL is `https://rubenrudov.github.io/travel-plan-central-america/`.
 
 ## Run locally
 
