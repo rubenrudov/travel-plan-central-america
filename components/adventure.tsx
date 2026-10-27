@@ -1,5 +1,6 @@
 "use client";
 import ReservationIntegrations from "./reservation-integrations";
+import RouteMap from "./map/route-map";
 import {
   cancellationInstant,
   cancellationAlerts,
@@ -144,6 +145,8 @@ const fields: Record<Kind, Field[]> = {
   destinations: [
     ...base,
     f("country", "Country", "מדינה"),
+    f("mapLat", "Map latitude (optional)", "קו רוחב במפה (רשות)", "number"),
+    f("mapLng", "Map longitude (optional)", "קו אורך במפה (רשות)", "number"),
     f(
       "aliases",
       "Alternative destination names (comma-separated)",
@@ -187,6 +190,8 @@ const fields: Record<Kind, Field[]> = {
     ]),
     f("propertyName", "Property name", "שם מקום האירוח"),
     f("stayAddress", "Accommodation address", "כתובת מקום האירוח"),
+    f("mapLat", "Map latitude (optional)", "קו רוחב במפה (רשות)", "number"),
+    f("mapLng", "Map longitude (optional)", "קו אורך במפה (רשות)", "number"),
     f("category", "Category", "קטגוריה", "select", [
       "Flights",
       "Accommodation",
@@ -265,12 +270,26 @@ const fields: Record<Kind, Field[]> = {
   transport: [
     ...base,
     f("origin", "Origin", "מוצא"),
+    f(
+      "fromDestinationId",
+      "Origin destination link (optional)",
+      "קישור ליעד מוצא (רשות)",
+      "destination",
+    ),
+    f(
+      "toDestinationId",
+      "Arrival destination link (optional)",
+      "קישור ליעד הגעה (רשות)",
+      "destination",
+    ),
     f("destination", "Destination", "יעד"),
     f("type", "Transport type", "סוג תחבורה", "select", [
       "Transfer",
       "Flight",
       "Shuttle",
       "Boat",
+      "Ferry",
+      "Car",
       "Bus",
       "Rental car",
       "Walk",
@@ -629,6 +648,46 @@ export default function Adventure({
           },
     });
   async function saveRecord(kind: Kind, record: Entry) {
+    const previousLocation = records[kind].find((r) => r.id === record.id);
+    if (previousLocation && ["destinations", "bookings"].includes(kind)) {
+      const queryChanged =
+        kind === "bookings"
+          ? previousLocation.stayAddress !== record.stayAddress
+          : previousLocation.title !== record.title ||
+            previousLocation.country !== record.country;
+      if (
+        queryChanged &&
+        record.mapLat === previousLocation.mapLat &&
+        record.mapLng === previousLocation.mapLng
+      )
+        record = {
+          ...record,
+          mapLat: "",
+          mapLng: "",
+          mapQuery: "",
+          mapLabel: "",
+          mapSource: "",
+        };
+    }
+
+    if (
+      ["destinations", "bookings"].includes(kind) &&
+      typeof record.mapLat === "number" &&
+      typeof record.mapLng === "number"
+    ) {
+      const query =
+        kind === "bookings"
+          ? str(record, "stayAddress")
+          : [record.title, str(record, "country")].filter(Boolean).join(", ");
+      const moved =
+        record.mapLat !== previousLocation?.mapLat ||
+        record.mapLng !== previousLocation?.mapLng;
+      record = {
+        ...record,
+        mapQuery: query,
+        ...(moved ? { mapSource: "Manual coordinates", mapLabel: query } : {}),
+      };
+    }
     if (kind === "bookings") {
       try {
         record = { ...record };
@@ -734,7 +793,13 @@ export default function Adventure({
     for (const key of kinds)
       updated[key] = updated[key].map((r) => {
         const next = { ...r };
-        for (const field of ["bookingId", "destinationId", "decisionId"])
+        for (const field of [
+          "bookingId",
+          "destinationId",
+          "decisionId",
+          "fromDestinationId",
+          "toDestinationId",
+        ])
           if (next[field] === id) next[field] = "";
         if (Array.isArray(next.dependencies))
           next.dependencies = next.dependencies.filter((x) => x !== id);
@@ -1737,8 +1802,24 @@ export default function Adventure({
                   "תאריכי הטיוטה גמישים. שינוי מציג רשומות קשורות לבדיקה; הזמנות מאושרות אינן מוזזות אוטומטית. סידור מחדש משנה את הסדר בלבד.",
                 )}
               </div>
+              <RouteMap
+                key={state.activeId}
+                state={state}
+                lang={lang}
+                onSave={persist}
+                onOpen={(target) => open(target.kind, target.record)}
+              />
               {list("segments")}
             </>
+          )}
+          {tab === "destinations" && (
+            <RouteMap
+              key={state.activeId}
+              state={state}
+              lang={lang}
+              onSave={persist}
+              onOpen={(target) => open(target.kind, target.record)}
+            />
           )}
           {tab === "transport" && (
             <>
@@ -2473,7 +2554,8 @@ export default function Adventure({
                           required={field.key === "title"}
                           type={field.type}
                           min={
-                            field.type === "number" && field.key !== "extra"
+                            field.type === "number" &&
+                            !["extra", "mapLat", "mapLng"].includes(field.key)
                               ? 0
                               : undefined
                           }

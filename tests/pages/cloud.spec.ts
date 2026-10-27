@@ -221,3 +221,58 @@ test("reservation review imports into the selected destination and refreshes the
     page.getByText("Calle 5, Antigua, Guatemala", { exact: true }),
   ).toBeVisible();
 });
+test("static Pages map loads its Leaflet bundle below the repository base path", async ({
+  page,
+}) => {
+  const state = seed();
+  const r = state.records[state.activeId];
+  r.destinations = r.destinations
+    .slice(0, 2)
+    .map((d, i) => ({
+      ...d,
+      mapLat: 14.55 + i * 0.13,
+      mapLng: -90.73 - i * 0.4,
+    }));
+  r.transport = [
+    {
+      id: "static-flight",
+      title: "Static test flight",
+      status: "tentative",
+      notes: "",
+      type: "Flight",
+      fromDestinationId: r.destinations[0].id,
+      toDestinationId: r.destinations[1].id,
+    },
+  ];
+  r.segments = [];
+  await page.addInitScript(
+    ({ project, session }) => {
+      const ref = new URL(project).hostname.split(".")[0];
+      localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(session));
+      localStorage.setItem("adventure-lang", "en");
+    },
+    { project, session },
+  );
+  await page.route(`${project}/rest/v1/rpc/*`, (route) =>
+    route.fulfill({ json: state }),
+  );
+  await page.route("https://tile.openstreetmap.org/**", (route) =>
+    route.fulfill({
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN3sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+      contentType: "image/png",
+    }),
+  );
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("./");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Itinerary", exact: true })
+    .click();
+  await expect(page.locator(".leaflet-container")).toBeVisible();
+  await expect(page.locator("[data-mode=flight]")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

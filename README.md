@@ -74,3 +74,7 @@ See [architecture](docs/ARCHITECTURE.md) and [roadmap](docs/ROADMAP.md) for limi
 The **Reservation sync** module integrates Gmail confirmations from Booking.com and Hostelworld. Recognized authenticated confirmations can attach dated accommodation addresses to a uniquely matched destination; uncertain messages go to review. Exact verified free-cancellation cutoffs drive one-week in-app alerts and scheduled Gmail reminders. Backend activation requires Google OAuth credentials, the additional Supabase migration/functions and a cron job. See [RESERVATIONS.md](docs/RESERVATIONS.md) for setup, permissions, supported formats and delivery limitations. This integration does not log into travel accounts or cancel reservations.
 
 In-app cancellation notifications are the default and require no Google token or extra backend setup. The Gmail connection is optional, collapsed by default, and email reminders default to off. In-app alerts appear while using the application, not as background push notifications.
+
+## Route map
+
+Itinerary and Destinations now include an OpenStreetMap view with dotted flight/ferry curves, midpoint vehicle icons, estimated road routes and saved accommodation hover/tap cards. Locate existing records once using Search, Place pin or manual coordinates; unresolved places are never guessed. See [MAP.md](docs/MAP.md) for usage, attribution, service limits and privacy details.

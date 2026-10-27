@@ -25,6 +25,27 @@ export const recordSchema = z
   })
   .catchall(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
   .superRefine((r, ctx) => {
+    for (const prefix of ["", "from", "to"]) {
+      const lat = prefix ? prefix + "MapLat" : "mapLat",
+        lng = prefix ? prefix + "MapLng" : "mapLng";
+      const hasLat = r[lat] !== undefined && r[lat] !== "";
+      const hasLng = r[lng] !== undefined && r[lng] !== "";
+      if (
+        hasLat !== hasLng ||
+        (hasLat &&
+          (typeof r[lat] !== "number" ||
+            typeof r[lng] !== "number" ||
+            Math.abs(Number(r[lat])) > 85 ||
+            Math.abs(Number(r[lng])) > 180))
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: [lat],
+          message:
+            "Enter both map coordinates: latitude -85 to 85, longitude -180 to 180",
+        });
+    }
+
     if (
       r.freeCancellationAt &&
       !z.iso.datetime({ offset: true }).safeParse(r.freeCancellationAt).success
