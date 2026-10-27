@@ -40,3 +40,9 @@ TypeScript, ESLint, 31 unit/database tests and both server/static builds passed.
 ## Login-time expedition reference error
 
 37 unit/database tests passed, including six recovery cases that preserve stored records/payment data and refuse ambiguous or lossy repair. Both builds passed. The six-test static suite reproduces the login-time malformed reference failure, verifies that no write occurs before a backup and confirmation, and verifies repair persistence after reload. Private cloud rows were not read through an administrative credential or reset; the repair runs only in the authenticated user's app. See WORKSPACE_RECOVERY.md.
+
+## Workspace redesign — October 27, 2026
+
+The shared design stylesheet adds a dark navigation rail, clearer type and contrast, larger controls, responsive record action rows and single-column mobile editors. Previously hidden mobile itinerary actions and destination previews are visible. Navigation supports close/Escape, focus containment and return, and independent scrolling to settings. Editor errors render inside the dialog and scroll into view; closing returns focus to the originating control. Background scrolling is locked while overlays are open.
+
+TypeScript, lint, 37 unit/database tests, the server build and Pages export passed. Eleven local browser tests and six static Pages tests passed. New coverage visits all eleven main navigation screens in Hebrew and English at 320, 390, 768 and 1440px, checks page overflow and icon bounds, reaches settings on a short phone, and exercises invalid-date feedback without saving. Static tests also check signed-in header actions at 320/390px. Desktop and mobile screenshots were visually reviewed. Supabase responses in static tests are mocked; no authentication emails or live private records were used.

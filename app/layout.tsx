@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./workspace-design.css";
 export const metadata: Metadata = {
   title: "Adventure OS — Plan the logistics. Preserve the adventure.",
   description: "Your personal expedition journal and planning workspace",

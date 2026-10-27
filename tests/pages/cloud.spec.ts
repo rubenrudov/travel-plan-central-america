@@ -103,6 +103,13 @@ test("authenticated static site saves and restores synced data, exports backup a
   expect(state.records[state.activeId].tasks.at(-1)?.title).toBe(
     "Synced Pages task",
   );
+  // The signed-in header also has a sign-out action; verify it fits on phones.
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 568 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "המסעות שלך. המקום שלך." }),

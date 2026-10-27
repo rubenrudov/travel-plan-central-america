@@ -14,7 +14,7 @@ import {
   currentStays,
 } from "@/lib/reservations";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   loadWorkspace,
   saveWorkspace,
@@ -467,6 +467,7 @@ export default function Adventure({
   accountEmail,
   onSignOut,
 }: { accountEmail?: string; onSignOut?: () => void } = {}) {
+  const editorTrigger = useRef<HTMLElement | null>(null);
   const [recovery, setRecovery] = useState<RecoveryPlan | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [state, setState] = useState<State | null>(null),
@@ -549,7 +550,9 @@ export default function Adventure({
     impactOpen = !!impact;
   useEffect(() => {
     if (!editorOpen && !impactOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = impactOpen
+      ? document.activeElement as HTMLElement | null
+      : editorTrigger.current;
     const root = document.querySelector(
       impactOpen ? ".impact-dialog" : ".editor",
     ) as HTMLElement | null;
@@ -586,6 +589,47 @@ export default function Adventure({
       previous?.focus();
     };
   }, [editorOpen, impactOpen]);
+  useEffect(() => {
+    if (error && editorOpen) {
+      document.querySelector('.editor [role="alert"]')?.scrollIntoView({ block: "nearest" });
+    }
+  }, [error, editorOpen]);
+  useEffect(() => {
+    if (!mobile && !editorOpen && !impactOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [mobile, editorOpen, impactOpen]);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 701px)");
+    const closeDrawer = () => { if (desktop.matches) setMobile(false); };
+    desktop.addEventListener("change", closeDrawer);
+    return () => desktop.removeEventListener("change", closeDrawer);
+  }, []);
+  useEffect(() => {
+    if (!mobile) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const sidebar = document.querySelector(".sidebar");
+    const controls = () => Array.from(sidebar?.querySelectorAll<HTMLElement>(
+      "a[href],button:not(:disabled),select",
+    ) || []).filter(node => node.getClientRects().length > 0);
+    controls()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobile(false);
+      if (event.key !== "Tab") return;
+      const nodes = controls(), first = nodes[0], last = nodes.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, [mobile]);
   async function persist(next: State) {
     setBusy(true);
     setError("");
@@ -658,7 +702,9 @@ export default function Adventure({
     setPacking(false);
     setMobile(false);
   };
-  const open = (kind: Kind, record?: Entry) =>
+  const open = (kind: Kind, record?: Entry) => {
+    editorTrigger.current = document.activeElement as HTMLElement | null;
+    setError("");
     setEditor({
       kind,
       record: record
@@ -683,6 +729,7 @@ export default function Adventure({
               : {}),
           },
     });
+  };
   async function saveRecord(kind: Kind, record: Entry) {
     const previousLocation = records[kind].find((r) => r.id === record.id);
     if (previousLocation && ["destinations", "bookings"].includes(kind)) {
@@ -1282,7 +1329,10 @@ export default function Adventure({
   }
   return (
     <div className="app">
-      <aside className={"sidebar " + (mobile ? "is-open" : "")}>
+      <aside id="workspace-navigation" aria-label={t("Workspace navigation", "ניווט בסביבת העבודה")} className={"sidebar " + (mobile ? "is-open" : "")}>
+        <button className="navigation-close icon-button" aria-label={t("Close navigation", "סגירת הניווט")} onClick={() => setMobile(false)}>
+          <X size={20} />
+        </button>
         <a
           className="brand"
           href="#"
@@ -1317,12 +1367,13 @@ export default function Adventure({
           </select>
         </label>
         <div className="workspace-label">{t("WORKSPACE", "סביבת המסע")}</div>
-        <nav>
+        <nav aria-label={t("Planning tools", "כלי תכנון")}>
           {nav.map(([id, en, he, Icon]) => (
             <button
               key={id}
               onClick={() => go(id)}
               className={tab === id ? "active" : ""}
+              aria-current={tab === id ? "page" : undefined}
             >
               <Icon size={18} />
               <span>{t(en, he)}</span>
@@ -1372,12 +1423,14 @@ export default function Adventure({
           onClick={() => setMobile(false)}
         />
       )}
-      <div className="main-shell">
+      <div className="main-shell" inert={mobile || editorOpen || impactOpen}>
         <header className="topbar">
           <div className="breadcrumbs">
             <button
               className="mobile-menu icon-button"
               aria-label="Open navigation"
+              aria-expanded={mobile}
+              aria-controls="workspace-navigation"
               onClick={() => setMobile(true)}
             >
               <Menu size={20} />
@@ -1468,7 +1521,7 @@ export default function Adventure({
               </button>
             ) : null}
           </div>
-          {error && (
+          {error && !editor && (
             <div className="alert" role="alert">
               <AlertTriangle size={17} />
               <span>{error}</span>
@@ -2449,6 +2502,13 @@ export default function Adventure({
                 saveRecord(editor.kind, editor.record);
               }}
             >
+              {error && (
+                <div className="alert" role="alert">
+                  <AlertTriangle size={18} />
+                  <span>{error}</span>
+                  <button type="button" className="icon-button" aria-label={t("Dismiss", "סגירה")} onClick={() => setError("")}><X size={18} /></button>
+                </div>
+              )}
               <div className="form-grid">
                 {fields[editor.kind].map((field) => {
                   let opts =
