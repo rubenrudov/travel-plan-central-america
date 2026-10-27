@@ -1,6 +1,12 @@
 "use client";
 import ReservationIntegrations from "./reservation-integrations";
 import RouteMap from "./map/route-map";
+import WorkspaceRecovery from "./workspace-recovery";
+import {
+  RecoveryPlan,
+  WorkspaceReferenceError,
+  parseLoadedWorkspace,
+} from "@/lib/workspace-recovery";
 import {
   cancellationInstant,
   cancellationAlerts,
@@ -461,6 +467,7 @@ export default function Adventure({
   accountEmail,
   onSignOut,
 }: { accountEmail?: string; onSignOut?: () => void } = {}) {
+  const [recovery, setRecovery] = useState<RecoveryPlan | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [state, setState] = useState<State | null>(null),
     [lang, setLang] = useState<"he" | "en">("he"),
@@ -501,6 +508,12 @@ export default function Adventure({
         if (l === "en") setLang("en");
       })
       .catch((error) => {
+        const language = localStorage.getItem("adventure-lang");
+        if (language === "en") setLang("en");
+        if (error instanceof WorkspaceReferenceError) {
+          setRecovery(error.plan);
+          return;
+        }
         if (cloudMode) {
           setError(
             error instanceof Error
@@ -511,7 +524,17 @@ export default function Adventure({
         }
         const cache = localStorage.getItem("adventure-cache");
         if (cache) {
-          setState(JSON.parse(cache));
+          try {
+            setState(parseLoadedWorkspace(JSON.parse(cache)));
+          } catch (cachedError) {
+            if (cachedError instanceof WorkspaceReferenceError)
+              setRecovery(cachedError.plan);
+            else
+              setError(
+                "Cached data could not be opened. Reload when connected.",
+              );
+            return;
+          }
           setError(
             "Offline: showing cached records. Editing requires a server connection.",
           );
@@ -581,6 +604,19 @@ export default function Adventure({
       setBusy(false);
     }
   }
+  if (recovery)
+    return (
+      <WorkspaceRecovery
+        plan={recovery}
+        lang={lang}
+        onSignOut={onSignOut}
+        onRestore={async (next) => {
+          const restored = await persist(next);
+          if (restored) setRecovery(null);
+          return restored;
+        }}
+      />
+    );
   if (!state)
     return (
       <main className="loading">

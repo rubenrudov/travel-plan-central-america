@@ -1,3 +1,4 @@
+import { parseLoadedWorkspace } from "./workspace-recovery";
 import { State, stateSchema } from "./model";
 import { seed } from "./seed";
 import { cloudMode, getSupabase } from "./supabase";
@@ -5,14 +6,14 @@ export async function loadWorkspace(): Promise<State> {
   if (cloudMode) {
     const { data, error } = await getSupabase().rpc(
       "load_or_create_workspace",
-      { p_seed: seed() },
+      { p_seed: stateSchema.parse(seed()) },
     );
     if (error) throw Error(error.message);
-    return stateSchema.parse(data);
+    return parseLoadedWorkspace(data);
   }
   const response = await fetch("/api/state", { cache: "no-store" });
   if (!response.ok) throw Error("Could not load expedition");
-  return stateSchema.parse(await response.json());
+  return parseLoadedWorkspace(await response.json());
 }
 export async function saveWorkspace(input: State): Promise<State> {
   const state = stateSchema.parse(input);

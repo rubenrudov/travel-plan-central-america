@@ -36,3 +36,7 @@ The reservation update adds tested core calculations, sender-aware conservative 
 ## OpenStreetMap route planning
 
 TypeScript, ESLint, 31 unit/database tests and both server/static builds passed. New map browser checks passed for dotted flight/ferry midpoint icons, estimated road geometry, confirmed geocoding selection persisted across reload, saved accommodation provider/address popups, mobile popup containment and horizontal layout, road-routing failure labels and manual pin placement without geocoding. The five-test static suite also verifies Leaflet's dynamic bundle beneath the GitHub Pages base path. Desktop/mobile map screenshots were inspected using controlled tile/service responses. Public Nominatim/OSRM connectivity was blocked by the workspace proxy, so successful live service requests are not claimed; failure handling and manual alternatives were tested. See MAP.md for provider, privacy and operational limits.
+
+## Login-time expedition reference error
+
+37 unit/database tests passed, including six recovery cases that preserve stored records/payment data and refuse ambiguous or lossy repair. Both builds passed. The six-test static suite reproduces the login-time malformed reference failure, verifies that no write occurs before a backup and confirmation, and verifies repair persistence after reload. Private cloud rows were not read through an administrative credential or reset; the repair runs only in the authenticated user's app. See WORKSPACE_RECOVERY.md.

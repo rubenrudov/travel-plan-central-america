@@ -2422,3 +2422,52 @@ h3 {
     font-size: 9px;
   }
 }
+.workspace-recovery {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+.workspace-recovery > .panel {
+  max-width: 760px;
+  width: 100%;
+  padding: 30px;
+}
+.workspace-recovery h1 {
+  font-size: 25px;
+}
+.workspace-recovery p,
+.workspace-recovery li {
+  font-size: 13px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.workspace-recovery h2 {
+  margin: 24px 0 12px;
+}
+.workspace-recovery details {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-recovery summary {
+  cursor: pointer;
+}
+.workspace-recovery li {
+  margin: 9px 0;
+}
+.workspace-recovery small {
+  display: block;
+  margin-top: 22px;
+}
+@media (max-width: 700px) {
+  .workspace-recovery {
+    padding: 14px;
+  }
+  .workspace-recovery > .panel {
+    padding: 22px;
+  }
+  .workspace-recovery h1 {
+    font-size: 22px;
+  }
+}

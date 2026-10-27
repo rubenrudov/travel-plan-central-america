@@ -147,34 +147,50 @@ export const expeditionSchema = z
   })
   .refine((x) => x.end >= x.start, { message: "End must follow start" });
 export type Expedition = z.infer<typeof expeditionSchema>;
-export const stateSchema = z
-  .object({
-    version: z.literal(1),
-    revision: z.number().int().nonnegative(),
-    activeId: z.string(),
-    expeditions: z.array(expeditionSchema).min(1),
-    records: z.record(
-      z.string(),
-      z.object(
-        Object.fromEntries(
-          kinds.map((k) => [k, z.array(recordSchema)]),
-        ) as Record<Kind, z.ZodArray<typeof recordSchema>>,
-      ),
+export const workspaceEnvelopeSchema = z.object({
+  version: z.literal(1),
+  revision: z.number().int().nonnegative(),
+  activeId: z.string(),
+  expeditions: z.array(expeditionSchema).min(1),
+  records: z.record(
+    z.string(),
+    z.object(
+      Object.fromEntries(
+        kinds.map((k) => [k, z.array(recordSchema)]),
+      ) as Record<Kind, z.ZodArray<typeof recordSchema>>,
     ),
-  })
-  .superRefine((s, ctx) => {
-    const ids = s.expeditions.map((e) => e.id);
-    if (
-      !ids.includes(s.activeId) ||
-      new Set(ids).size !== ids.length ||
-      ids.some((id) => !s.records[id]) ||
-      Object.keys(s.records).some((id) => !ids.includes(id))
-    )
+  ),
+});
+export const stateSchema = workspaceEnvelopeSchema.superRefine((s, ctx) => {
+  const ids = s.expeditions.map((e) => e.id);
+  if (!ids.includes(s.activeId))
+    ctx.addIssue({
+      code: "custom",
+      message: "The active expedition does not exist in the expedition list",
+      path: ["activeId"],
+    });
+  for (let i = 0; i < ids.length; i++) {
+    if (ids.indexOf(ids[i]) !== i)
       ctx.addIssue({
         code: "custom",
-        message: "Invalid expedition references",
+        message: "Duplicate expedition ID",
+        path: ["expeditions", i, "id"],
       });
-  });
+    if (!Object.hasOwn(s.records, ids[i]))
+      ctx.addIssue({
+        code: "custom",
+        message: "Expedition has no matching records collection",
+        path: ["records", ids[i]],
+      });
+  }
+  for (const id of Object.keys(s.records))
+    if (!ids.includes(id))
+      ctx.addIssue({
+        code: "custom",
+        message: "Records collection is not linked to an expedition",
+        path: ["records", id],
+      });
+});
 export type State = z.infer<typeof stateSchema>;
 export const num = (r: Entry, key: string) => Number(r[key] || 0);
 export const str = (r: Entry, key: string) => String(r[key] ?? "");

@@ -226,13 +226,11 @@ test("static Pages map loads its Leaflet bundle below the repository base path",
 }) => {
   const state = seed();
   const r = state.records[state.activeId];
-  r.destinations = r.destinations
-    .slice(0, 2)
-    .map((d, i) => ({
-      ...d,
-      mapLat: 14.55 + i * 0.13,
-      mapLng: -90.73 - i * 0.4,
-    }));
+  r.destinations = r.destinations.slice(0, 2).map((d, i) => ({
+    ...d,
+    mapLat: 14.55 + i * 0.13,
+    mapLng: -90.73 - i * 0.4,
+  }));
   r.transport = [
     {
       id: "static-flight",
@@ -275,4 +273,55 @@ test("static Pages map loads its Leaflet bundle below the repository base path",
   await expect(page.locator(".leaflet-container")).toBeVisible();
   await expect(page.locator("[data-mode=flight]")).toHaveCount(1);
   expect(errors).toEqual([]);
+});
+test("invalid stored expedition references offer a backup and confirmed lossless repair after login", async ({
+  page,
+}) => {
+  let state = seed();
+  const savedRecords = structuredClone(state.records[state.activeId]);
+  state.expeditions[0].id = "changed-expedition-id";
+  await page.addInitScript(
+    ({ project, session }) => {
+      const ref = new URL(project).hostname.split(".")[0];
+      localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(session));
+      localStorage.setItem("adventure-lang", "en");
+    },
+    { project, session },
+  );
+  let saves = 0;
+  await page.route(`${project}/rest/v1/rpc/*`, async (route) => {
+    if (route.request().url().endsWith("/save_workspace")) {
+      saves++;
+      const input = route.request().postDataJSON();
+      expect(input.p_expected_revision).toBe(0);
+      state = { ...input.p_state, revision: 1 };
+    }
+    await route.fulfill({ json: state });
+  });
+  await page.goto("./");
+  await expect(
+    page.getByRole("heading", { name: "Reconnect your expedition records" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Confirm repair", exact: true }),
+  ).toBeDisabled();
+  expect(saves).toBe(0);
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download original backup" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(
+    "adventure-os-original-before-repair.json",
+  );
+  await page
+    .getByRole("button", { name: "Confirm repair", exact: true })
+    .click();
+  await expect(page.locator(".hero")).toBeVisible();
+  expect(saves).toBe(1);
+  expect(state.activeId).toBe("changed-expedition-id");
+  expect(state.records["changed-expedition-id"]).toEqual(savedRecords);
+  await page.reload();
+  await expect(page.locator(".hero")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Reconnect your expedition records" }),
+  ).toHaveCount(0);
 });
