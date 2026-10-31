@@ -107,8 +107,14 @@ test("authenticated static site saves and restores synced data, exports backup a
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 568 });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(
+      page.getByRole("button", { name: "Sign out", exact: true }),
+    ).toBeInViewport();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
   }
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(
@@ -331,4 +337,79 @@ test("invalid stored expedition references offer a backup and confirmed lossless
   await expect(
     page.getByRole("heading", { name: "Reconnect your expedition records" }),
   ).toHaveCount(0);
+});
+
+test("legacy private workspace updates only after backup and keeps reservations and payments across reload", async ({
+  page,
+}) => {
+  const { legacySeed } = await import("../../lib/seed");
+  let state = legacySeed();
+  state.records[state.activeId].bookings.push({
+    id: "existing-proof",
+    title: "אישור לינה שמור",
+    status: "Refundable booking",
+    notes: "נתון בדיקה בלבד",
+    reference: "QA-REFERENCE",
+    category: "Accommodation",
+    destinationId: "antigua",
+    date: "2027-04-17",
+    end: "2027-04-20",
+    amount: 100,
+    paid: 30,
+    currency: "ILS",
+  });
+  const originalBooking = structuredClone(
+    state.records[state.activeId].bookings.at(-1),
+  );
+  let saves = 0;
+  await page.addInitScript(
+    ({ project, session }) => {
+      localStorage.setItem(
+        `sb-${new URL(project).hostname.split(".")[0]}-auth-token`,
+        JSON.stringify(session),
+      );
+      localStorage.setItem("adventure-lang", "he");
+    },
+    { project, session },
+  );
+  await page.route(`${project}/rest/v1/rpc/*`, async (route) => {
+    if (route.request().url().endsWith("/save_workspace")) {
+      const data = route.request().postDataJSON();
+      expect(data.p_expected_revision).toBe(state.revision);
+      state = { ...data.p_state, revision: state.revision + 1 };
+      saves++;
+    }
+    await route.fulfill({ json: state });
+  });
+  await page.goto("./");
+  await page
+    .getByRole("button", { name: "בדיקת עדכון המסע", exact: true })
+    .click();
+  const apply = page.getByRole("button", {
+    name: "החלת התוכנית ושמירת ההיסטוריה",
+    exact: true,
+  });
+  await expect(apply).toBeDisabled();
+  expect(saves).toBe(0);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "הורדת גיבוי לפני העדכון", exact: true })
+    .click();
+  expect((await download).suggestedFilename()).toBe("adventure-os-backup.json");
+  await apply.click();
+  await expect(page.locator(".trip-upgrade")).toHaveCount(0);
+  expect(saves).toBe(1);
+  const r = state.records[state.activeId];
+  expect(r.bookings.find((b) => b.id === "existing-proof")).toEqual(
+    originalBooking,
+  );
+  expect(r.bookings.some((b) => b.id === "nature27-reported-antigua")).toBe(
+    false,
+  );
+  expect(r.segments.filter((s) => !s.archived)).toHaveLength(8);
+  expect(r.tasks.filter((t) => !t.archived)).toHaveLength(27);
+  await page.reload();
+  await expect(page.locator(".trip-now")).toBeVisible();
+  await expect(page.locator(".trip-upgrade")).toHaveCount(0);
+  expect(saves).toBe(1);
 });

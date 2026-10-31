@@ -3,6 +3,24 @@ import ReservationIntegrations from "./reservation-integrations";
 import RouteMap from "./map/route-map";
 import WorkspaceRecovery from "./workspace-recovery";
 import {
+  PlanUpdate,
+  BookingCenter,
+  TripTimeline,
+  MarineCenter,
+  TripDashboard,
+  BudgetPlanning,
+  TripArchive,
+} from "./trip-planning";
+import {
+  bookingStatuses,
+  bookingStatusLabels,
+  isActive,
+  isExistingBooking,
+  missingConfirmation,
+} from "@/lib/booking-status";
+import { PLAN_VERSION } from "@/lib/expedition-2027";
+import { rescheduleTasks } from "@/lib/trip-planning";
+import {
   RecoveryPlan,
   WorkspaceReferenceError,
   parseLoadedWorkspace,
@@ -62,8 +80,8 @@ import {
   kinds,
   str,
   num,
-  cost,
   totals,
+  bookingCategoryForecast,
   impacts,
   warnings,
   readiness,
@@ -73,7 +91,14 @@ import {
   shareGear,
   newExpeditionRecords,
 } from "@/lib/operations";
-type Tab = "dashboard" | Kind | "travel" | "settings" | "integrations";
+type Tab =
+  | "dashboard"
+  | Kind
+  | "travel"
+  | "settings"
+  | "integrations"
+  | "marine"
+  | "archive";
 type Field = {
   key: string;
   en: string;
@@ -92,6 +117,7 @@ const base = [
   f("title", "Name", "שם"),
   f("status", "Status", "מצב", "select", [
     "tentative",
+    "Planned",
     "Confirmed",
     "Estimated",
     "Needs verification",
@@ -130,6 +156,7 @@ const fields: Record<Kind, Field[]> = {
       "Todo",
       "In progress",
       "Done",
+      "Deferred",
       "Cancelled",
     ]),
     f("category", "Category", "קטגוריה", "select", [
@@ -142,7 +169,45 @@ const fields: Record<Kind, Field[]> = {
     ]),
     f("priority", "Priority", "עדיפות", "select", ["High", "Medium", "Low"]),
     f("window", "Preparation window", "חלון הכנה"),
-    f("date", "Deadline (only if known)", "מועד אחרון (אם ידוע)", "date"),
+    f(
+      "date",
+      "Deadline (only if known)",
+      "מועד אחרון / תאריך יעד מומלץ",
+      "date",
+    ),
+    f("destinationId", "Destination", "יעד", "destination"),
+    f("segmentId", "Linked station", "תחנה מקושרת", "segment"),
+    f("bookingWindow", "Planning window", "חלון תכנון", "select", [
+      "now",
+      "winter",
+      "spring",
+      "spontaneous",
+    ]),
+    f(
+      "recommendation",
+      "Booking recommendation",
+      "המלצה לסגירה מראש או ספונטניות",
+    ),
+    f("deadlineKind", "Deadline type", "סוג מועד", "select", [
+      "recommended",
+      "verified",
+    ]),
+    f(
+      "manualDeadline",
+      "Keep date unchanged when route changes",
+      "תאריך ידני — לא לשנות בעקבות המסלול",
+      "checkbox",
+    ),
+    f("postponedUntil", "Postpone until", "דחייה עד", "date"),
+    f("budgetMin", "Planning budget minimum", "תקציב מינימום לתכנון", "number"),
+    f("budgetMax", "Planning budget maximum", "תקציב מקסימום לתכנון", "number"),
+    f("currency", "Currency", "מטבע", "select", [
+      "ILS",
+      "USD",
+      "GTQ",
+      "MXN",
+      "EUR",
+    ]),
     f("bookingId", "Related booking", "הזמנה קשורה", "booking"),
     f("dependencies", "Task dependencies", "משימות מקדימות", "dependencies"),
     f("notes", "Notes / evidence", "הערות / אסמכתאות", "textarea"),
@@ -173,19 +238,25 @@ const fields: Record<Kind, Field[]> = {
       "Free day",
     ]),
     f("locked", "Lock dates", "נעילת תאריכים", "checkbox"),
+    f(
+      "planningFixed",
+      "Fixed planning station",
+      "תחנה קבועה לתכנון — אינה אישור הזמנה",
+      "checkbox",
+    ),
     ...money,
     f("dependencies", "Dependencies", "תלויות", "dependencies"),
   ],
   bookings: [
     f("title", "Booking name", "שם ההזמנה"),
     f("status", "Booking status", "מצב הזמנה", "select", [
+      ...bookingStatuses,
       "Idea",
       "Researching",
       "Shortlisted",
       "Ready to book",
       "Booked",
       "Paid",
-      "Cancelled",
     ]),
     f("provider", "Provider", "ספק"),
     f("bookingSource", "Reservation source", "מקור ההזמנה", "select", [
@@ -227,7 +298,62 @@ const fields: Record<Kind, Field[]> = {
       "Paid",
       "Refunded",
     ]),
+    f("refunded", "Refund received", "החזר שהתקבל בפועל", "number"),
+    f("deposit", "Agreed deposit", "מקדמה מוסכמת — לא תשלום נוסף", "number"),
     f("balanceDate", "Balance due", "מועד יתרה לתשלום", "date"),
+    f("evidence", "Evidence source", "מקור האימות", "select", [
+      "user-reported",
+      "provider-confirmed",
+    ]),
+    f("confidence", "Confidence", "רמת ודאות", "select", [
+      "Needs verification",
+      "Estimated",
+      "Confirmed",
+    ]),
+    f("checked", "Date checked", "תאריך בדיקת הפרטים", "date"),
+    f("alternativeGroup", "Alternative group", "קבוצת חלופות מתחרות"),
+    f(
+      "selectedAlternative",
+      "Selected alternative",
+      "החלופה שנבחרה לחישוב",
+      "checkbox",
+    ),
+    f("marine", "Marine activity", "פעילות בהרפתקאות ימיות", "checkbox"),
+    f("plannedDays", "Planned days", "מספר ימים מתוכנן", "number"),
+    f("plannedDives", "Planned dives", "מספר צלילות כיעד תכנוני", "number"),
+    f(
+      "budgetMax",
+      "Planning ceiling",
+      "תקרת תקציב מועדפת — לא מחיר מאומת",
+      "number",
+    ),
+    f("candidateOperators", "Candidate operators", "מפעילים מועמדים"),
+    f(
+      "experienceRequirement",
+      "Required experience",
+      "דרישות הכשרה וניסיון",
+      "textarea",
+    ),
+    f(
+      "weatherDependent",
+      "Weather dependent",
+      "תלוי במזג האוויר ובתנאי הים",
+      "checkbox",
+    ),
+    f("wildlife", "Hoped-for wildlife", "בעלי חיים שמקווים לפגוש — ללא הבטחה"),
+    f(
+      "lastDiveAt",
+      "Last planned dive ends",
+      "סיום צלילה אחרונה לצורך בדיקת טיסה",
+      "datetime-local",
+    ),
+    f("diveTimezone", "Dive timezone", "אזור זמן הצלילה (IANA)"),
+    f(
+      "minNoFlyHours",
+      "Planning surface interval hours",
+      "סף שעות לתכנון צלילה–טיסה — דורש הנחיות מפעיל",
+      "number",
+    ),
     f("reference", "Confirmation reference", "מספר אישור"),
     f("cancellation", "Cancellation terms", "תנאי ביטול", "textarea"),
     f(
@@ -274,7 +400,25 @@ const fields: Record<Kind, Field[]> = {
     f("notes", "Notes", "הערות", "textarea"),
   ],
   transport: [
-    ...base,
+    ...base.map((field) =>
+      field.key === "status"
+        ? {
+            ...field,
+            options: [
+              ...new Set([
+                ...(field.options || []),
+                ...bookingStatuses,
+                "Booked",
+                "Paid",
+                "Researching",
+              ]),
+            ],
+          }
+        : field,
+    ),
+    f("bookingId", "Related booking", "הזמנה קשורה", "booking"),
+    f("critical", "Critical connection", "מעבר קריטי למסלול", "checkbox"),
+    f("departureTimezone", "Departure timezone", "אזור זמן ההמראה (IANA)"),
     f("origin", "Origin", "מוצא"),
     f(
       "fromDestinationId",
@@ -355,6 +499,10 @@ const fields: Record<Kind, Field[]> = {
   ],
   expenses: [
     ...base,
+    f("expenseKind", "Expense type", "סוג הוצאה", "select", [
+      "actual",
+      "estimate",
+    ]),
     ...money,
     f("category", "Category", "קטגוריה", "select", [
       "Flights",
@@ -454,7 +602,8 @@ const nav = [
   ["dashboard", "Overview", "מבט על", LayoutDashboard],
   ["segments", "Itinerary", "מסלול הטיול", Map],
   ["tasks", "Preparation", "הכנות לדרך", CheckSquare],
-  ["bookings", "Bookings", "הזמנות", Ticket],
+  ["bookings", "Bookings", "מרכז ההזמנות", Ticket],
+  ["marine", "Marine adventures", "הרפתקאות ימיות", Waves],
   ["integrations", "Reservation sync", "סנכרון הזמנות", Mail],
   ["transport", "Connections", "תחבורה ומעברים", ArrowLeftRight],
   ["gear", "Gear & packing", "ציוד ואריזה", Backpack],
@@ -462,6 +611,7 @@ const nav = [
   ["decisions", "Research & decisions", "מחקר והחלטות", Lightbulb],
   ["dives", "Dive & trek log", "יומן צלילה ואימון", Waves],
   ["travel", "Travel mode", "מצב מסע", Navigation],
+  ["archive", "Planning archive", "ארכיון התכנון", Download],
 ] as const;
 export default function Adventure({
   accountEmail,
@@ -551,7 +701,7 @@ export default function Adventure({
   useEffect(() => {
     if (!editorOpen && !impactOpen) return;
     const previous = impactOpen
-      ? document.activeElement as HTMLElement | null
+      ? (document.activeElement as HTMLElement | null)
       : editorTrigger.current;
     const root = document.querySelector(
       impactOpen ? ".impact-dialog" : ".editor",
@@ -591,18 +741,24 @@ export default function Adventure({
   }, [editorOpen, impactOpen]);
   useEffect(() => {
     if (error && editorOpen) {
-      document.querySelector('.editor [role="alert"]')?.scrollIntoView({ block: "nearest" });
+      document
+        .querySelector('.editor [role="alert"]')
+        ?.scrollIntoView({ block: "nearest" });
     }
   }, [error, editorOpen]);
   useEffect(() => {
     if (!mobile && !editorOpen && !impactOpen) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previous; };
+    return () => {
+      document.body.style.overflow = previous;
+    };
   }, [mobile, editorOpen, impactOpen]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 701px)");
-    const closeDrawer = () => { if (desktop.matches) setMobile(false); };
+    const closeDrawer = () => {
+      if (desktop.matches) setMobile(false);
+    };
     desktop.addEventListener("change", closeDrawer);
     return () => desktop.removeEventListener("change", closeDrawer);
   }, []);
@@ -610,18 +766,25 @@ export default function Adventure({
     if (!mobile) return;
     const previous = document.activeElement as HTMLElement | null;
     const sidebar = document.querySelector(".sidebar");
-    const controls = () => Array.from(sidebar?.querySelectorAll<HTMLElement>(
-      "a[href],button:not(:disabled),select",
-    ) || []).filter(node => node.getClientRects().length > 0);
+    const controls = () =>
+      Array.from(
+        sidebar?.querySelectorAll<HTMLElement>(
+          "a[href],button:not(:disabled),select",
+        ) || [],
+      ).filter((node) => node.getClientRects().length > 0);
     controls()[0]?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setMobile(false);
       if (event.key !== "Tab") return;
-      const nodes = controls(), first = nodes[0], last = nodes.at(-1);
+      const nodes = controls(),
+        first = nodes[0],
+        last = nodes.at(-1);
       if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault(); last?.focus();
+        event.preventDefault();
+        last?.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault(); first?.focus();
+        event.preventDefault();
+        first?.focus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -671,9 +834,21 @@ export default function Adventure({
     );
   const expedition = state.expeditions.find((e) => e.id === state.activeId)!;
   const records = state.records[state.activeId];
+  const routeIds = [
+    ...new Set(
+      records.segments
+        .filter(isActive)
+        .sort((a, b) => str(a, "date").localeCompare(str(b, "date")))
+        .map((s) => str(s, "destinationId")),
+    ),
+  ];
+  const routeDestinations = routeIds
+    .map((id) => records.destinations.find((d) => d.id === id))
+    .filter((d): d is Entry => !!d && isActive(d));
   const total = totals(records, expedition);
-  const prep = records.tasks.filter((x) => x.status === "Done").length;
-  const percent = Math.round((prep / Math.max(records.tasks.length, 1)) * 100);
+  const activeTasks = records.tasks.filter((x) => !x.archived);
+  const prep = activeTasks.filter((x) => x.status === "Done").length;
+  const percent = Math.round((prep / Math.max(activeTasks.length, 1)) * 100);
   const dive = readiness(records.dives);
   const moneyFmt = (n: number) =>
     new Intl.NumberFormat(lang === "he" ? "he-IL" : "en-IL", {
@@ -731,6 +906,31 @@ export default function Adventure({
     });
   };
   async function saveRecord(kind: Kind, record: Entry) {
+    if (
+      kind === "bookings" &&
+      record.status === "Refundable booking" &&
+      record.cancellationPolicy !== "Free cancellation"
+    )
+      record = {
+        ...record,
+        cancellationPolicy: "Free cancellation",
+        cancellationVerified: false,
+      };
+    if (
+      kind === "bookings" &&
+      record.evidence === "provider-confirmed" &&
+      (!record.reference ||
+        !record.date ||
+        (record.category === "Accommodation" && !record.end))
+    ) {
+      setError(
+        t(
+          "Provider confirmation requires a reference and dates.",
+          "אימות מול ספק דורש מספר אישור ותאריכים. אפשר לשמור בינתיים לפי דיווח המשתמש.",
+        ),
+      );
+      return;
+    }
     const previousLocation = records[kind].find((r) => r.id === record.id);
     if (previousLocation && ["destinations", "bookings"].includes(kind)) {
       const queryChanged =
@@ -824,7 +1024,24 @@ export default function Adventure({
       ? records[kind].map((x) => (x.id === record.id ? record : x))
       : [...records[kind], record];
     let updated = { ...records, [kind]: list };
-    if (kind === "bookings" && ["Booked", "Paid"].includes(record.status))
+    if (
+      kind === "segments" &&
+      previousLocation?.date &&
+      record.date !== previousLocation.date
+    ) {
+      const delta =
+        (Date.parse(str(record, "date")) -
+          Date.parse(str(previousLocation, "date"))) /
+        86400000;
+      if (Number.isFinite(delta))
+        updated.tasks = rescheduleTasks(
+          records.tasks,
+          record.id,
+          delta,
+          str(record, "date"),
+        );
+    }
+    if (kind === "bookings" && isExistingBooking(record))
       updated = {
         ...updated,
         tasks: updated.tasks.map((x) =>
@@ -856,12 +1073,38 @@ export default function Adventure({
     if (
       !confirm(
         t(
-          "Delete this record? Linked references will be cleared.",
-          "למחוק את הרשומה? קישורים אליה יוסרו.",
+          expedition.planVersion === PLAN_VERSION
+            ? "Archive this record? Its details and linked history will be preserved."
+            : "Delete this record? Linked references will be cleared.",
+          expedition.planVersion === PLAN_VERSION
+            ? "להעביר את הרשומה לארכיון? הפרטים וההיסטוריה המקושרת יישמרו."
+            : "למחוק את הרשומה? קישורים אליה יוסרו.",
         ),
       )
     )
       return;
+    if (expedition.planVersion === PLAN_VERSION) {
+      await persist({
+        ...state!,
+        records: {
+          ...state!.records,
+          [state!.activeId]: {
+            ...records,
+            [kind]: records[kind].map((r) =>
+              r.id === id
+                ? {
+                    ...r,
+                    archived: true,
+                    archiveReason:
+                      "הועבר לארכיון מתוך הממשק; הפרטים המקוריים נשמרו",
+                  }
+                : r,
+            ),
+          },
+        },
+      });
+      return;
+    }
     let updated = {
       ...records,
       [kind]: records[kind].filter((x) => x.id !== id),
@@ -909,22 +1152,26 @@ export default function Adventure({
         } as Partial<Record<Tab, string>>
       )[tab];
   const pending = records.tasks
-    .filter((x) => !["Done", "Cancelled"].includes(x.status))
+    .filter(
+      (x) =>
+        isActive(x) && !["Done", "Cancelled", "Deferred"].includes(x.status),
+    )
     .sort(
       (a, b) =>
         Number(b.priority === "High") - Number(a.priority === "High") ||
         (str(a, "date") || "9999").localeCompare(str(b, "date") || "9999"),
     );
   const bookingQueue = records.bookings
-    .filter((b) => !["Booked", "Paid", "Cancelled"].includes(b.status))
+    .filter(
+      (b) =>
+        isActive(b) && !isExistingBooking(b) && b.status !== "Optional booking",
+    )
     .sort((a, b) => {
       const blocked = (r: Entry) =>
         Array.isArray(r.dependencies) &&
         r.dependencies.some(
           (id) =>
-            !records.bookings.some(
-              (x) => x.id === id && ["Booked", "Paid"].includes(x.status),
-            ),
+            !records.bookings.some((x) => x.id === id && isExistingBooking(x)),
         );
       return (
         Number(blocked(a)) - Number(blocked(b)) ||
@@ -963,7 +1210,55 @@ export default function Adventure({
             rent: "להשכרה",
             borrow: "להשאלה",
           } as Record<string, string>
-        )[s] || s;
+        )[s] ||
+        bookingStatusLabels[s] ||
+        (
+          {
+            now: "נובמבר–דצמבר 2026",
+            winter: "ינואר–פברואר 2027",
+            spring: "מרץ–תחילת אפריל 2027",
+            spontaneous: "ספונטני במהלך המסע",
+            actual: "הוצאה שבוצעה בפועל",
+            estimate: "עלות צפויה בלבד",
+            Guatemala: "גואטמלה",
+            Mexico: "מקסיקו",
+            recommended: "המלצה תכנונית",
+            verified: "מועד שאומת מול ספק",
+            "user-reported": "לפי דיווח המשתמש — פרטי אישור חסרים",
+            "provider-confirmed": "פרטים אומתו מול ספק",
+            High: "גבוהה",
+            Medium: "רגילה",
+            Low: "נמוכה",
+            Stay: "שהייה",
+            Buffer: "מרווח ביטחון",
+            "Free day": "יום פתוח",
+            Activity: "פעילות",
+            Flight: "טיסה",
+            Car: "רכב",
+            Shuttle: "הסעה",
+            Ferry: "מעבורת",
+            Diving: "צלילה",
+            Accommodation: "לינה",
+            Flights: "טיסות",
+            Transport: "תחבורה",
+            Trekking: "טרקים",
+            Documents: "מסמכים",
+            Health: "בריאות",
+            Logistics: "לוגיסטיקה",
+            Other: "אחר",
+            "Wildlife excursions": "טבע וחיות בר",
+            Unknown: "לא ידוע",
+            Unpaid: "טרם שולם",
+            "Deposit paid": "שולמה מקדמה",
+            Refunded: "הוחזר",
+            "Free cancellation": "ביטול חינם",
+            "Non-refundable": "ללא החזר",
+            Direct: "ישירות מול הספק",
+            Insurance: "ביטוח",
+            "Car rental": "השכרת רכב",
+          } as Record<string, string>
+        )[s] ||
+        s;
   function badge(s: string) {
     return (
       <span
@@ -988,7 +1283,7 @@ export default function Adventure({
     );
   }
   function list(kind: Kind) {
-    const all = records[kind];
+    const all = records[kind].filter((r) => !r.archived);
     const visible = all.filter(
       (r) =>
         (!search ||
@@ -1105,7 +1400,13 @@ export default function Adventure({
                   ...state!,
                   records: {
                     ...state!.records,
-                    [state!.activeId]: { ...records, segments: reordered },
+                    [state!.activeId]: {
+                      ...records,
+                      segments: [
+                        ...reordered.filter((r) => !r.archived),
+                        ...records.segments.filter((r) => r.archived),
+                      ],
+                    },
                   },
                 });
               }}
@@ -1150,10 +1451,10 @@ export default function Adventure({
               )}
               <div className="record-main">
                 <div className="record-eyebrow">
-                  {str(r, "category") ||
-                    str(r, "type") ||
+                  {statusLabel(str(r, "category")) ||
+                    statusLabel(str(r, "type")) ||
                     destinationName(r) ||
-                    str(r, "country")}
+                    statusLabel(str(r, "country"))}
                   {r.locked ? " · 🔒" : ""}
                 </div>
                 <button className="record-title" onClick={() => open(kind, r)}>
@@ -1179,6 +1480,26 @@ export default function Adventure({
                       {str(stay, "stayAddress")}
                     </p>
                   ))}
+                {kind === "bookings" &&
+                  r.routeRelevance === "outside-current-plan" && (
+                    <p className="trip-caution">
+                      הזמנה מחוץ למסלול הנוכחי — נשמרה ללא שינוי או ביטול; יש
+                      לבדוק באופן אישי.
+                    </p>
+                  )}
+                {kind === "bookings" && missingConfirmation(r) && (
+                  <p className="trip-caution">
+                    פרטי אישור חסרים — יש לבדוק ספק, תאריכים ואסמכתה
+                  </p>
+                )}
+                {kind === "bookings" && (r.amount !== undefined || r.paid) && (
+                  <p className="muted">
+                    {t("Paid", "שולם")}: {str(r, "paid") || "0"}{" "}
+                    {str(r, "currency")} · {t("Balance", "יתרה לתשלום")}:{" "}
+                    {Math.max(0, num(r, "amount") - num(r, "paid"))}{" "}
+                    {str(r, "currency")}
+                  </p>
+                )}
                 <div className="record-meta">
                   {r.date && (
                     <span>
@@ -1256,7 +1577,16 @@ export default function Adventure({
                 </button>
                 <button
                   className="icon-button delete"
-                  aria-label={t("Delete", "מחיקה")}
+                  aria-label={t(
+                    "Delete",
+                    expedition.planVersion === PLAN_VERSION
+                      ? "העברה לארכיון"
+                      : "מחיקה",
+                  )}
+                  title={t(
+                    "Archive / remove from active planning",
+                    "העברה לארכיון ושמירת ההיסטוריה",
+                  )}
                   onClick={() => remove(kind, r.id)}
                 >
                   <Trash2 size={15} />
@@ -1266,14 +1596,14 @@ export default function Adventure({
                     <button
                       aria-label="Move up"
                       disabled={index === 0 || !!r.locked}
-                      onClick={() => move(index, -1)}
+                      onClick={() => move(r.id, -1)}
                     >
                       <ArrowUp size={14} />
                     </button>
                     <button
                       aria-label="Move down"
                       disabled={index === all.length - 1 || !!r.locked}
-                      onClick={() => move(index, 1)}
+                      onClick={() => move(r.id, 1)}
                     >
                       <ArrowDown size={14} />
                     </button>
@@ -1304,8 +1634,11 @@ export default function Adventure({
       </>
     );
   }
-  function move(index: number, delta: number) {
-    const reordered = [...records.segments];
+  function move(id: string, delta: number) {
+    const reordered = records.segments.filter((r) => !r.archived);
+    const index = reordered.findIndex((r) => r.id === id);
+    if (index < 0 || !reordered[index + delta] || reordered[index].locked)
+      return;
     if (reordered[index + delta]?.locked) {
       setError(
         t(
@@ -1323,14 +1656,28 @@ export default function Adventure({
       ...state!,
       records: {
         ...state!.records,
-        [state!.activeId]: { ...records, segments: reordered },
+        [state!.activeId]: {
+          ...records,
+          segments: [
+            ...reordered.filter((r) => !r.archived),
+            ...records.segments.filter((r) => r.archived),
+          ],
+        },
       },
     });
   }
   return (
     <div className="app">
-      <aside id="workspace-navigation" aria-label={t("Workspace navigation", "ניווט בסביבת העבודה")} className={"sidebar " + (mobile ? "is-open" : "")}>
-        <button className="navigation-close icon-button" aria-label={t("Close navigation", "סגירת הניווט")} onClick={() => setMobile(false)}>
+      <aside
+        id="workspace-navigation"
+        aria-label={t("Workspace navigation", "ניווט בסביבת העבודה")}
+        className={"sidebar " + (mobile ? "is-open" : "")}
+      >
+        <button
+          className="navigation-close icon-button"
+          aria-label={t("Close navigation", "סגירת הניווט")}
+          onClick={() => setMobile(false)}
+        >
           <X size={20} />
         </button>
         <a
@@ -1478,6 +1825,7 @@ export default function Adventure({
           </div>
         </header>
         <main>
+          <PlanUpdate state={state} onSave={persist} />
           <div className="page-heading">
             <div>
               <div className="eyebrow">
@@ -1536,6 +1884,15 @@ export default function Adventure({
               {notice}
             </div>
           )}
+          {tab === "marine" && (
+            <MarineCenter state={state} onSave={persist} onOpen={open} />
+          )}
+          {tab === "archive" && (
+            <TripArchive state={state} onSave={persist} onOpen={open} />
+          )}
+          {tab === "dashboard" && (
+            <TripDashboard state={state} onOpen={open} onNavigate={go} />
+          )}
           {tab === "dashboard" && (
             <>
               <section className="hero">
@@ -1544,10 +1901,20 @@ export default function Adventure({
                     <span className="live-dot" />
                     {t("THE NEXT ADVENTURE", "ההרפתקה הבאה")}
                   </span>
-                  <h2 dir="ltr">
-                    Guatemala
-                    <br />
-                    <span>& Baja California</span>
+                  <h2
+                    dir={
+                      expedition.planVersion === PLAN_VERSION ? "rtl" : "ltr"
+                    }
+                  >
+                    {expedition.planVersion === PLAN_VERSION ? (
+                      expedition.title
+                    ) : (
+                      <>
+                        Guatemala
+                        <br />
+                        <span>&amp; Baja California</span>
+                      </>
+                    )}
                   </h2>
                   <p>
                     {t(
@@ -1567,7 +1934,8 @@ export default function Adventure({
                       {
                         new Set(
                           records.destinations
-                            .map((d) => str(d, "country"))
+                            .filter(isActive)
+                            .map((d) => statusLabel(str(d, "country")))
                             .filter(Boolean),
                         ).size
                       }{" "}
@@ -1635,151 +2003,157 @@ export default function Adventure({
                   )}
                 </section>
               )}
-              <section className="stats">
-                <button onClick={() => go("tasks")}>
-                  <span className="stat-label">
-                    <CheckSquare size={16} />
-                    {t("Preparation", "מוכנות למסע")}
-                  </span>
-                  <strong>
-                    {percent}
-                    <small>%</small>
-                  </strong>
-                  <div className="progress">
-                    <i style={{ width: percent + "%" }} />
-                  </div>
-                  <span className="stat-foot">
-                    {prep} {t("of", "מתוך")} {records.tasks.length}{" "}
-                    {t("tasks complete", "משימות הושלמו")}
-                  </span>
-                </button>
-                <button onClick={() => go("expenses")}>
-                  <span className="stat-label">
-                    <Wallet size={16} />
-                    {t("Budget remaining", "יתרת תקציב")}
-                  </span>
-                  <strong>{moneyFmt(total.remaining)}</strong>
-                  <span className="stat-foot">
-                    {t("of", "מתוך")} {moneyFmt(expedition.budget)} ·{" "}
-                    {t("after commitments", "לאחר התחייבויות")}
-                  </span>
-                </button>
-                <button onClick={() => go("bookings")}>
-                  <span className="stat-label">
-                    <Ticket size={16} />
-                    {t("Bookings to arrange", "הזמנות לתכנון")}
-                  </span>
-                  <strong>
-                    {bookingQueue.length.toString().padStart(2, "0")}
-                    <small className="stat-pill">
-                      {t("in planning", "בתכנון")}
-                    </small>
-                  </strong>
-                  <span className="stat-foot">
-                    {t(
-                      "No assumed reservations",
-                      "ללא הזמנות משוערות כמאושרות",
-                    )}
-                  </span>
-                </button>
-                <button onClick={() => go("decisions")}>
-                  <span className="stat-label">
-                    <Lightbulb size={16} />
-                    {t("Open decisions", "החלטות פתוחות")}
-                  </span>
-                  <strong>
-                    {records.decisions
-                      .filter((x) => x.status !== "Decided")
-                      .length.toString()
-                      .padStart(2, "0")}
-                  </strong>
-                  <span className="stat-foot">
-                    {t(
-                      "A little research goes a long way",
-                      "קצת מחקר עושה דרך ארוכה",
-                    )}
-                  </span>
-                </button>
-              </section>
-              <div className="dashboard-grid">
-                <section className="panel next-actions">
-                  <div className="section-title">
-                    <h2>{t("Make a little progress", "צעד קטן לקראת המסע")}</h2>
-                    <button onClick={() => go("tasks")}>
-                      {t("All tasks", "כל המשימות")}
-                      <ArrowUpRight size={14} />
-                    </button>
-                  </div>
-                  <p className="section-subtitle">
-                    {t(
-                      "A few things to move your adventure forward.",
-                      "כמה דברים שיקדמו את ההרפתקה שלך.",
-                    )}
-                  </p>
-                  {pending.slice(0, 4).map((task, i) => (
-                    <button
-                      key={task.id}
-                      className="action-row"
-                      onClick={() => open("tasks", task)}
-                    >
-                      <span className="action-number">0{i + 1}</span>
-                      <span>
-                        <strong>{task.title}</strong>
-                        <small>
-                          {str(task, "window")} · {str(task, "category")}
-                        </small>
-                      </span>
-                      {badge(str(task, "priority"))}
-                      <ArrowUpRight size={16} />
-                    </button>
-                  ))}
-                  {pending.length === 0 && (
-                    <p>
+              {expedition.planVersion !== PLAN_VERSION && (
+                <section className="stats">
+                  <button onClick={() => go("tasks")}>
+                    <span className="stat-label">
+                      <CheckSquare size={16} />
+                      {t("Preparation", "מוכנות למסע")}
+                    </span>
+                    <strong>
+                      {percent}
+                      <small>%</small>
+                    </strong>
+                    <div className="progress">
+                      <i style={{ width: percent + "%" }} />
+                    </div>
+                    <span className="stat-foot">
+                      {prep} {t("of", "מתוך")} {activeTasks.length}{" "}
+                      {t("tasks complete", "משימות הושלמו")}
+                    </span>
+                  </button>
+                  <button onClick={() => go("expenses")}>
+                    <span className="stat-label">
+                      <Wallet size={16} />
+                      {t("Budget remaining", "יתרת תקציב")}
+                    </span>
+                    <strong>{moneyFmt(total.remaining)}</strong>
+                    <span className="stat-foot">
+                      {t("of", "מתוך")} {moneyFmt(expedition.budget)} ·{" "}
+                      {t("after commitments", "לאחר התחייבויות")}
+                    </span>
+                  </button>
+                  <button onClick={() => go("bookings")}>
+                    <span className="stat-label">
+                      <Ticket size={16} />
+                      {t("Bookings to arrange", "הזמנות לתכנון")}
+                    </span>
+                    <strong>
+                      {bookingQueue.length.toString().padStart(2, "0")}
+                      <small className="stat-pill">
+                        {t("in planning", "בתכנון")}
+                      </small>
+                    </strong>
+                    <span className="stat-foot">
                       {t(
-                        "All preparation tasks complete.",
-                        "כל משימות ההכנה הושלמו.",
+                        "No assumed reservations",
+                        "ללא הזמנות משוערות כמאושרות",
+                      )}
+                    </span>
+                  </button>
+                  <button onClick={() => go("decisions")}>
+                    <span className="stat-label">
+                      <Lightbulb size={16} />
+                      {t("Open decisions", "החלטות פתוחות")}
+                    </span>
+                    <strong>
+                      {records.decisions
+                        .filter((x) => !x.archived && x.status !== "Decided")
+                        .length.toString()
+                        .padStart(2, "0")}
+                    </strong>
+                    <span className="stat-foot">
+                      {t(
+                        "A little research goes a long way",
+                        "קצת מחקר עושה דרך ארוכה",
+                      )}
+                    </span>
+                  </button>
+                </section>
+              )}
+              {expedition.planVersion !== PLAN_VERSION && (
+                <div className="dashboard-grid">
+                  <section className="panel next-actions">
+                    <div className="section-title">
+                      <h2>
+                        {t("Make a little progress", "צעד קטן לקראת המסע")}
+                      </h2>
+                      <button onClick={() => go("tasks")}>
+                        {t("All tasks", "כל המשימות")}
+                        <ArrowUpRight size={14} />
+                      </button>
+                    </div>
+                    <p className="section-subtitle">
+                      {t(
+                        "A few things to move your adventure forward.",
+                        "כמה דברים שיקדמו את ההרפתקה שלך.",
                       )}
                     </p>
-                  )}
-                </section>
-                <section className="focus-card">
-                  <div className="eyebrow">
-                    <Sun size={15} />
-                    {t("THE BIG REASON", "בשביל הרגע הזה")}
-                  </div>
-                  <div className="ray-art">
-                    <svg viewBox="0 0 300 120" aria-hidden="true">
-                      <path
-                        d="M146 62 Q100 5 12 22 Q59 53 98 88 L144 70 L170 104 L167 69 Q221 107 287 27 Q210 5 155 58 L143 35 L137 39Z"
-                        fill="currentColor"
-                      />
-                      <path
-                        d="M145 67 Q147 95 135 119"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      />
-                    </svg>
-                  </div>
-                  <h2>{t("Chasing the mobulas.", "בעקבות המובולות.")}</h2>
-                  <p>
-                    {t(
-                      "The Sea of Cortez is calling. Keep a few days open for a little ocean magic.",
-                      "ים קורטז קורא לך. נשאיר כמה ימים פתוחים לקסם של האוקיינוס.",
+                    {pending.slice(0, 4).map((task, i) => (
+                      <button
+                        key={task.id}
+                        className="action-row"
+                        onClick={() => open("tasks", task)}
+                      >
+                        <span className="action-number">0{i + 1}</span>
+                        <span>
+                          <strong>{task.title}</strong>
+                          <small>
+                            {str(task, "window")} · {str(task, "category")}
+                          </small>
+                        </span>
+                        {badge(str(task, "priority"))}
+                        <ArrowUpRight size={16} />
+                      </button>
+                    ))}
+                    {pending.length === 0 && (
+                      <p>
+                        {t(
+                          "All preparation tasks complete.",
+                          "כל משימות ההכנה הושלמו.",
+                        )}
+                      </p>
                     )}
-                  </p>
-                  <button onClick={() => go("decisions")}>
-                    {t("Plan the encounter", "לתכנון המפגש")}
-                    <ArrowUpRight size={16} />
-                  </button>
-                  <small>
-                    {t(
-                      "Seasonal wildlife · sightings never guaranteed",
-                      "חיות בר עונתיות · אין הבטחה לתצפיות",
-                    )}
-                  </small>
-                </section>
-              </div>
+                  </section>
+                  <section className="focus-card">
+                    <div className="eyebrow">
+                      <Sun size={15} />
+                      {t("THE BIG REASON", "בשביל הרגע הזה")}
+                    </div>
+                    <div className="ray-art">
+                      <svg viewBox="0 0 300 120" aria-hidden="true">
+                        <path
+                          d="M146 62 Q100 5 12 22 Q59 53 98 88 L144 70 L170 104 L167 69 Q221 107 287 27 Q210 5 155 58 L143 35 L137 39Z"
+                          fill="currentColor"
+                        />
+                        <path
+                          d="M145 67 Q147 95 135 119"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        />
+                      </svg>
+                    </div>
+                    <h2>{t("Chasing the mobulas.", "בעקבות המובולות.")}</h2>
+                    <p>
+                      {t(
+                        "The Sea of Cortez is calling. Keep a few days open for a little ocean magic.",
+                        "ים קורטז קורא לך. נשאיר כמה ימים פתוחים לקסם של האוקיינוס.",
+                      )}
+                    </p>
+                    <button onClick={() => go("decisions")}>
+                      {t("Plan the encounter", "לתכנון המפגש")}
+                      <ArrowUpRight size={16} />
+                    </button>
+                    <small>
+                      {t(
+                        "Seasonal wildlife · sightings never guaranteed",
+                        "חיות בר עונתיות · אין הבטחה לתצפיות",
+                      )}
+                    </small>
+                  </section>
+                </div>
+              )}
               <section className="route-section">
                 <div className="section-title">
                   <div>
@@ -1799,7 +2173,7 @@ export default function Adventure({
                   </button>
                 </div>
                 <div className="route-cards">
-                  {records.destinations.slice(0, 5).map((d, i) => (
+                  {routeDestinations.slice(0, 8).map((d, i) => (
                     <button
                       key={d.id}
                       className={"destination-card scene-" + i}
@@ -1814,7 +2188,7 @@ export default function Adventure({
                         )}
                       </div>
                       <div>
-                        <small>{str(d, "country")}</small>
+                        <small>{statusLabel(str(d, "country"))}</small>
                         <h3>{d.title}</h3>
                         <span>
                           {t("Explore the plan", "לפרטי התכנון")}
@@ -1891,6 +2265,7 @@ export default function Adventure({
                   "תאריכי הטיוטה גמישים. שינוי מציג רשומות קשורות לבדיקה; הזמנות מאושרות אינן מוזזות אוטומטית. סידור מחדש משנה את הסדר בלבד.",
                 )}
               </div>
+              <TripTimeline state={state} onSave={persist} onOpen={open} />
               <RouteMap
                 key={state.activeId}
                 state={state}
@@ -1898,7 +2273,10 @@ export default function Adventure({
                 onSave={persist}
                 onOpen={(target) => open(target.kind, target.record)}
               />
-              {list("segments")}
+              <details className="trip-full-editor">
+                <summary>עריכת כל פרטי התחנות</summary>
+                {list("segments")}
+              </details>
             </>
           )}
           {tab === "destinations" && (
@@ -1919,16 +2297,16 @@ export default function Adventure({
                   "יש לאמת לוחות זמנים, תנאי כניסה, מרווחי טיסות וזמן מנוחה בין צלילה לטיסה. מעברים ללא פרטים אינם מאושרים.",
                 )}
               </div>
-              {warnings(records).length > 0 && (
+              {warnings(records, lang).length > 0 && (
                 <details className="warning-panel">
                   <summary>
-                    {warnings(records).length}{" "}
+                    {warnings(records, lang).length}{" "}
                     {t(
                       "connection checks need attention",
                       "בדיקות מעברים דורשות תשומת לב",
                     )}
                   </summary>
-                  {warnings(records).map((w, i) => (
+                  {warnings(records, lang).map((w, i) => (
                     <p key={i}>{w}</p>
                   ))}
                 </details>
@@ -1938,13 +2316,17 @@ export default function Adventure({
           )}
           {tab === "bookings" && (
             <>
+              <BookingCenter state={state} onSave={persist} onOpen={open} />
               <div className="booking-queue">
                 <span className="eyebrow">
                   {t("WHAT TO BOOK NEXT", "מה להזמין עכשיו")}
                 </span>
                 <h3>
                   {bookingQueue[0]?.title ||
-                    t("All current bookings arranged", "כל ההזמנות טופלו")}
+                    t(
+                      "No advance-booking candidates",
+                      "אין כרגע מועמדת להזמנה מראש",
+                    )}
                 </h3>
                 <p>
                   {t(
@@ -1964,6 +2346,7 @@ export default function Adventure({
           )}
           {tab === "expenses" && (
             <>
+              <BudgetPlanning state={state} onSave={persist} />
               <section className="stats budget-stats">
                 {[
                   [t("Forecast", "תחזית"), total.estimated],
@@ -2013,28 +2396,23 @@ export default function Adventure({
                     "תחזית הזמנות לפי קטגוריה",
                   )}
                 </h3>
-                {Array.from(
-                  new Set(
-                    records.bookings
-                      .filter((x) => x.status !== "Cancelled")
-                      .map((x) => str(x, "category") || "Other"),
-                  ),
-                ).map((c) => (
-                  <div key={c}>
-                    <span>{c}</span>
-                    <strong>
-                      {moneyFmt(
-                        records.bookings
-                          .filter(
-                            (x) =>
-                              x.status !== "Cancelled" &&
-                              (str(x, "category") || "Other") === c,
-                          )
-                          .reduce((s, x) => s + cost(x, expedition), 0),
-                      )}
-                    </strong>
+                {Object.entries(
+                  bookingCategoryForecast(records, expedition),
+                ).map(([category, amount]) => (
+                  <div key={category}>
+                    <span>{statusLabel(category)}</span>
+                    <strong>{moneyFmt(amount)}</strong>
                   </div>
                 ))}
+                {Object.keys(bookingCategoryForecast(records, expedition))
+                  .length === 0 && (
+                  <p className="muted">
+                    {t(
+                      "No booking costs recorded yet.",
+                      "עדיין לא הוזנו עלויות הזמנות. התחזית אינה מלאה.",
+                    )}
+                  </p>
+                )}
               </section>
               {list("expenses")}
             </>
@@ -2072,8 +2450,8 @@ export default function Adventure({
               <div className="info">
                 <AlertTriangle size={18} />
                 {t(
-                  "Limited current experience. A projected 20–30 dives is not an actual log. Recent practice, comfort, conditions and operator requirements matter; this app does not certify dive readiness.",
-                  "ניסיון מוגבל בזרמים. צפי של 20–30 צלילות אינו יומן בפועל. תרגול עדכני, נוחות, תנאים ודרישות המפעיל חשובים; האפליקציה אינה מאשרת כשירות לצלילה.",
+                  "Limited current experience. Verify your current total dive count against your log. Recent practice, comfort, conditions and operator requirements matter; this app does not certify dive readiness.",
+                  "ניסיון מוגבל בזרמים. יש לאמת את מספר הצלילות המעודכן מול היומן. תרגול עדכני, נוחות, תנאים ודרישות המפעיל חשובים; האפליקציה אינה מאשרת כשירות לצלילה.",
                 )}
               </div>
               {list("dives")}
@@ -2171,7 +2549,7 @@ export default function Adventure({
                   {records[k]
                     .filter(
                       (r) =>
-                        r.status !== "Cancelled" &&
+                        isActive(r) &&
                         !!r.date &&
                         (k === "transport"
                           ? str(r, "date") >= travelDate
@@ -2208,6 +2586,7 @@ export default function Adventure({
                     ))}
                   {!records[k].some(
                     (r) =>
+                      isActive(r) &&
                       r.date &&
                       str(r, "date") <= travelDate &&
                       (str(r, "end") || str(r, "date")) >= travelDate,
@@ -2472,6 +2851,8 @@ export default function Adventure({
                 }
                 if (
                   editor.kind === "bookings" &&
+                  editor.record.amount !== undefined &&
+                  editor.record.amount !== "" &&
                   num(editor.record, "paid") > num(editor.record, "amount")
                 ) {
                   setError(
@@ -2506,7 +2887,14 @@ export default function Adventure({
                 <div className="alert" role="alert">
                   <AlertTriangle size={18} />
                   <span>{error}</span>
-                  <button type="button" className="icon-button" aria-label={t("Dismiss", "סגירה")} onClick={() => setError("")}><X size={18} /></button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("Dismiss", "סגירה")}
+                    onClick={() => setError("")}
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
               )}
               <div className="form-grid">
@@ -2520,6 +2908,7 @@ export default function Adventure({
                     [
                       "destination",
                       "booking",
+                      "segment",
                       "decision",
                       "dependencies",
                     ].includes(field.type || "")
@@ -2527,17 +2916,19 @@ export default function Adventure({
                     const linked =
                       field.type === "destination"
                         ? records.destinations
-                        : field.type === "booking"
-                          ? records.bookings
-                          : field.type === "decision"
-                            ? records.decisions
-                            : editor.kind === "tasks"
-                              ? records.tasks
-                              : [
-                                  ...records.bookings,
-                                  ...records.transport,
-                                  ...records.segments,
-                                ];
+                        : field.type === "segment"
+                          ? records.segments.filter(isActive)
+                          : field.type === "booking"
+                            ? records.bookings
+                            : field.type === "decision"
+                              ? records.decisions
+                              : editor.kind === "tasks"
+                                ? records.tasks
+                                : [
+                                    ...records.bookings,
+                                    ...records.transport,
+                                    ...records.segments,
+                                  ];
                     opts = linked
                       .filter((x) => x.id !== editor.record.id)
                       .map((r) => ({ value: r.id, label: r.title }));
@@ -2600,6 +2991,7 @@ export default function Adventure({
                           "select",
                           "destination",
                           "booking",
+                          "segment",
                           "decision",
                           "dependencies",
                         ].includes(field.type || "") ? (
@@ -2669,6 +3061,10 @@ export default function Adventure({
                                 ].includes(field.key)
                                   ? { cancellationVerified: false }
                                   : {}),
+                                ...(editor.kind === "tasks" &&
+                                field.key === "date"
+                                  ? { manualDeadline: true }
+                                  : {}),
                                 [field.key]:
                                   field.type === "number"
                                     ? e.target.value === ""
@@ -2718,7 +3114,7 @@ export default function Adventure({
             <p>
               {t(
                 "Save this date change only? Linked and confirmed records stay unchanged. Review them individually before finalizing your route.",
-                "לשמור רק את שינוי התאריכים הזה? רשומות מקושרות והזמנות מאושרות לא ישתנו. יש לבדוק אותן בנפרד לפני סגירת המסלול.",
+                "לשמור את שינוי התאריכים? משימות המלצה הקשורות לתחנה יעודכנו, למעט תאריכים ידניים. הזמנות וטיסות לא ישתנו; יש לבדוק אותן בנפרד לפני סגירת המסלול.",
               )}
             </p>
             {impact.affected.map((r) => (

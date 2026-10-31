@@ -1,9 +1,48 @@
 import { test, expect } from "@playwright/test";
+import type { State } from "../../lib/model";
+let original: State;
+test.beforeEach(async ({ request }) => {
+  original = await (await request.get("/api/state")).json();
+  const id = `smoke-isolated-${Date.now()}`;
+  expect(
+    (
+      await request.put("/api/state", {
+        data: {
+          ...original,
+          activeId: id,
+          expeditions: [
+            ...original.expeditions,
+            {
+              ...original.expeditions.find((e) => e.id === original.activeId)!,
+              id,
+            },
+          ],
+          records: {
+            ...original.records,
+            [id]: structuredClone(original.records[original.activeId]),
+          },
+        },
+      })
+    ).ok(),
+  ).toBe(true);
+});
+test.afterEach(async ({ request }) => {
+  const current = await (await request.get("/api/state")).json();
+  expect(
+    (
+      await request.put("/api/state", {
+        data: { ...original, revision: current.revision },
+      })
+    ).ok(),
+  ).toBe(true);
+});
 test("Hebrew dashboard, task CRUD and persistent reload", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(
-    page.getByRole("heading", { name: "Guatemala & Baja California" }),
+    page.getByRole("heading", {
+      name: "גואטמלה ומקסיקו — מסע בעקבות הטבע והים",
+    }),
   ).toBeVisible();
   await page.getByRole("button", { name: "EN", exact: true }).click();
   await page

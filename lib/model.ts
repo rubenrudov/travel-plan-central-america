@@ -1,5 +1,6 @@
 import { DateTime, IANAZone } from "luxon";
 import { z } from "zod";
+import { isActive, isCancelled, isExistingBooking } from "./booking-status";
 export const kinds = [
   "tasks",
   "destinations",
@@ -91,6 +92,12 @@ export const recordSchema = z
       "mobulaDays",
       "dailyCost",
       "rate",
+      "deposit",
+      "refunded",
+      "budgetMin",
+      "budgetMax",
+      "plannedDays",
+      "plannedDives",
     ]) {
       const value = r[key];
       if (value === undefined || value === "") continue;
@@ -106,7 +113,15 @@ export const recordSchema = z
           message: "Expected a nonnegative number (rates must be positive)",
         });
     }
-    for (const key of ["date", "end", "checked", "cancelDate", "balanceDate"])
+    for (const key of [
+      "date",
+      "end",
+      "checked",
+      "cancelDate",
+      "balanceDate",
+      "postponedUntil",
+      "lastDiveDate",
+    ])
       if (r[key] && !z.iso.date().safeParse(r[key]).success)
         ctx.addIssue({
           code: "custom",
@@ -144,8 +159,28 @@ export const expeditionSchema = z
     end: z.iso.date(),
     budget: z.number().positive(),
     rates: z.record(z.string(), z.number().positive()),
+    planVersion: z.string().optional(),
+    previousTitle: z.string().optional(),
+    previousStart: z.string().optional(),
+    previousEnd: z.string().optional(),
+    budgetMin: z.number().nonnegative().optional(),
+    budgetMax: z.number().positive().optional(),
+    reserve: z.number().nonnegative().optional(),
+    categoryBudgets: z.record(z.string(), z.number().nonnegative()).optional(),
+    certification: z.string().optional(),
+    currentExperience: z.string().optional(),
   })
-  .refine((x) => x.end >= x.start, { message: "End must follow start" });
+  .refine((x) => x.end >= x.start, { message: "End must follow start" })
+  .refine(
+    (x) =>
+      x.budgetMin === undefined ||
+      x.budgetMax === undefined ||
+      x.budgetMin <= x.budgetMax,
+    {
+      message: "גבול התקציב התחתון חייב להיות קטן מהגבול העליון או שווה לו",
+      path: ["budgetMax"],
+    },
+  );
 export type Expedition = z.infer<typeof expeditionSchema>;
 export const workspaceEnvelopeSchema = z.object({
   version: z.literal(1),
@@ -190,6 +225,26 @@ export const stateSchema = workspaceEnvelopeSchema.superRefine((s, ctx) => {
         message: "Records collection is not linked to an expedition",
         path: ["records", id],
       });
+  for (const [id, records] of Object.entries(s.records)) {
+    const groups = new Set<string>();
+    for (const booking of records.bookings) {
+      if (
+        !booking.alternativeGroup ||
+        !booking.selectedAlternative ||
+        isCancelled(booking) ||
+        booking.archived
+      )
+        continue;
+      const group = str(booking, "alternativeGroup");
+      if (groups.has(group))
+        ctx.addIssue({
+          code: "custom",
+          message: "ניתן לבחור רק הזמנה אחת בכל קבוצת חלופות",
+          path: ["records", id, "bookings"],
+        });
+      groups.add(group);
+    }
+  }
 });
 export type State = z.infer<typeof stateSchema>;
 export const num = (r: Entry, key: string) => Number(r[key] || 0);
@@ -199,35 +254,120 @@ export function cost(r: Entry, e: Expedition) {
     num(r, "amount") * (num(r, "rate") || e.rates[str(r, "currency")] || 1)
   );
 }
+// The summary and category breakdown use the same forecast, including money
+// already spent on a cancelled or unselected alternative.
+export function bookingCategoryForecast(
+  records: Record<Kind, Entry[]>,
+  e: Expedition,
+) {
+  const categories: Record<string, number> = {};
+  for (const booking of records.bookings) {
+    const retained =
+      Math.max(0, num(booking, "paid") - num(booking, "refunded")) *
+      (num(booking, "rate") || e.rates[str(booking, "currency")] || 1);
+    const included =
+      !isCancelled(booking) &&
+      (!booking.archived || isExistingBooking(booking)) &&
+      (!booking.alternativeGroup || booking.selectedAlternative === true);
+    const amount = included ? Math.max(cost(booking, e), retained) : retained;
+    if (amount > 0) {
+      const category = str(booking, "category") || "Other";
+      categories[category] = (categories[category] || 0) + amount;
+    }
+  }
+  return categories;
+}
 export function totals(records: Record<Kind, Entry[]>, e: Expedition) {
-  const bookings = records.bookings.filter((b) => b.status !== "Cancelled");
-  const committed = bookings
-    .filter((b) => ["Booked", "Paid"].includes(b.status))
+  const currentBookings = records.bookings.filter(
+    (b) => !isCancelled(b) && (!b.archived || isExistingBooking(b)),
+  );
+  const bookings = currentBookings.filter(
+    (b) => !b.alternativeGroup || b.selectedAlternative === true,
+  );
+  const retainedPayment = (b: Entry) =>
+    Math.max(0, num(b, "paid") - num(b, "refunded")) *
+    (num(b, "rate") || e.rates[str(b, "currency")] || 1);
+  const committed = currentBookings
+    .filter(isExistingBooking)
     .reduce((s, b) => s + cost(b, e), 0);
   const estimated =
-    bookings.reduce((s, b) => s + cost(b, e), 0) +
+    Object.values(bookingCategoryForecast(records, e)).reduce(
+      (sum, amount) => sum + amount,
+      0,
+    ) +
     records.gear
-      .filter((g) => g.ownership === "buy")
+      .filter((g) => !g.archived && g.ownership === "buy")
       .reduce((s, g) => s + cost(g, e) * Math.max(1, num(g, "quantity")), 0);
-  const paid = bookings.reduce(
-    (s, b) =>
-      s +
-      Math.min(
-        cost(b, e),
-        num(b, "paid") * (num(b, "rate") || e.rates[str(b, "currency")] || 1),
-      ),
-    0,
-  );
+  const paid = records.bookings.reduce((s, b) => s + retainedPayment(b), 0);
   // Linked expenses are payments, already represented by the booking. Only unlinked spending adds to the forecast.
   const actual = records.expenses
-    .filter((x) => !x.bookingId)
+    .filter(
+      (x) => !x.bookingId && !isCancelled(x) && x.expenseKind !== "estimate",
+    )
     .reduce((s, x) => s + cost(x, e), 0);
+  const estimatedExpenses = records.expenses
+    .filter(
+      (x) => !x.bookingId && !isCancelled(x) && x.expenseKind === "estimate",
+    )
+    .reduce((sum, x) => sum + cost(x, e), 0);
   return {
     committed,
-    estimated: estimated + actual,
+    estimated: estimated + actual + estimatedExpenses,
     paid,
     actual,
-    remaining: e.budget - committed - actual,
+    remaining:
+      e.budget -
+      committed -
+      actual -
+      records.bookings
+        .filter(isCancelled)
+        .reduce((sum, b) => sum + retainedPayment(b), 0),
+    outstanding: currentBookings
+      .filter(isExistingBooking)
+      .reduce(
+        (sum, b) =>
+          sum +
+          Math.max(
+            0,
+            cost(b, e) -
+              num(b, "paid") *
+                (num(b, "rate") || e.rates[str(b, "currency")] || 1),
+          ),
+        0,
+      ),
+    refundable: currentBookings
+      .filter(
+        (b) =>
+          isExistingBooking(b) &&
+          (b.cancellationPolicy === "Free cancellation" ||
+            b.status === "Refundable booking"),
+      )
+      .reduce((sum, b) => sum + cost(b, e), 0),
+    nonrefundable: currentBookings
+      .filter(
+        (b) =>
+          isExistingBooking(b) && b.cancellationPolicy === "Non-refundable",
+      )
+      .reduce((sum, b) => sum + cost(b, e), 0),
+    reserve: e.reserve || 0,
+    unknownCosts: bookings.filter(
+      (b) => b.amount === undefined || b.amount === "",
+    ).length,
+    unselectedAlternatives: new Set(
+      records.bookings
+        .filter(
+          (b) =>
+            isActive(b) &&
+            b.alternativeGroup &&
+            !records.bookings.some(
+              (other) =>
+                isActive(other) &&
+                other.alternativeGroup === b.alternativeGroup &&
+                other.selectedAlternative === true,
+            ),
+        )
+        .map((b) => str(b, "alternativeGroup")),
+    ).size,
   };
 }
 export function impacts(record: Entry, records: Record<Kind, Entry[]>) {
@@ -243,25 +383,28 @@ export function impacts(record: Entry, records: Record<Kind, Entry[]>) {
           r.dependencies.includes(record.id))),
   );
 }
-export function warnings(records: Record<Kind, Entry[]>) {
+export function warnings(
+  records: Record<Kind, Entry[]>,
+  lang: "he" | "en" = "en",
+) {
   const out: string[] = [];
-  for (const t of records.transport) {
-    if (!t.date) out.push(`${t.title}: date needs planning`);
+  for (const t of records.transport.filter(isActive)) {
+    if (!t.date)
+      out.push(
+        `${t.title}: ${lang === "he" ? "טרם נקבע תאריך מעבר" : "date needs planning"}`,
+      );
     if (t.departure && t.arrival && str(t, "arrival") < str(t, "departure"))
       out.push(
-        `${t.title}: arrival precedes departure; verify dates and timezones`,
+        `${t.title}: ${lang === "he" ? "ההגעה קודמת ליציאה; יש לבדוק תאריכים ואזורי זמן" : "arrival precedes departure; verify dates and timezones"}`,
       );
     if (t.buffer && num(t, "buffer") < 120)
       out.push(
-        `${t.title}: transfer buffer under 2 hours; verify with operator`,
+        `${t.title}: ${lang === "he" ? "מרווח מעבר קצר משעתיים; יש לבדוק עם המפעיל" : "transfer buffer under 2 hours; verify with operator"}`,
       );
   }
   const booked = records.bookings.filter(
     (x) =>
-      ["Booked", "Paid"].includes(x.status) &&
-      x.date &&
-      x.end &&
-      x.category === "Accommodation",
+      isExistingBooking(x) && x.date && x.end && x.category === "Accommodation",
   );
   for (let i = 0; i < booked.length; i++)
     for (let j = i + 1; j < booked.length; j++)
@@ -270,7 +413,7 @@ export function warnings(records: Record<Kind, Entry[]>) {
         str(booked[j], "date") < str(booked[i], "end")
       )
         out.push(
-          `Accommodation overlap: ${booked[i].title} / ${booked[j].title}`,
+          `${lang === "he" ? "חפיפת לינות" : "Accommodation overlap"}: ${booked[i].title} / ${booked[j].title}`,
         );
   return out;
 }

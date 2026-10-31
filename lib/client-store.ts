@@ -51,4 +51,5 @@ export async function downloadBackup() {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return state;
 }

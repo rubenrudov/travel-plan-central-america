@@ -127,7 +127,9 @@ test("date changes surface a confirmed booking without moving it", async ({
     .locator("nav")
     .getByRole("button", { name: "Itinerary", exact: true })
     .click();
-  await page.getByRole("button", { name: "Test stay", exact: true }).click();
+  await page
+    .getByRole("button", { name: "עריכת תחנה: Test stay", exact: true })
+    .click();
   await page.getByLabel("Start date", { exact: true }).fill("2027-04-17");
   await page.getByRole("button", { name: "Save record", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();

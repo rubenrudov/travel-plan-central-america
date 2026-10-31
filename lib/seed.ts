@@ -1,4 +1,5 @@
 import { State, Entry, Kind, kinds } from "./model";
+import { plan2027Update } from "./expedition-2027";
 const entry = (
   id: string,
   title: string,
@@ -10,7 +11,7 @@ export function emptyRecords() {
     Entry[]
   >;
 }
-export function seed(): State {
+export function legacySeed(): State {
   const r = emptyRecords();
   r.destinations = [
     entry("antigua", "Antigua", {
@@ -245,4 +246,8 @@ export function seed(): State {
     ],
     records: { "guatemala-baja-2027": r },
   };
+}
+
+export function seed(): State {
+  return plan2027Update(legacySeed());
 }

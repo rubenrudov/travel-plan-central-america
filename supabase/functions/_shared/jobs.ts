@@ -294,7 +294,7 @@ export async function sendReminders(connection: Connection) {
   for (const expedition of workspace.expeditions)
     for (const booking of workspace.records[expedition.id].bookings) {
       if (
-        !["Booked", "Paid"].includes(booking.status) ||
+        booking.archived || !["Booked", "Paid", "Confirmed booking", "Refundable booking", "Tentative booking"].includes(booking.status) ||
         booking.cancellationPolicy !== "Free cancellation" ||
         booking.cancellationVerified !== true ||
         !booking.freeCancellationAt ||

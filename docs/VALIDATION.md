@@ -46,3 +46,15 @@ TypeScript, ESLint, 31 unit/database tests and both server/static builds passed.
 The shared design stylesheet adds a dark navigation rail, clearer type and contrast, larger controls, responsive record action rows and single-column mobile editors. Previously hidden mobile itinerary actions and destination previews are visible. Navigation supports close/Escape, focus containment and return, and independent scrolling to settings. Editor errors render inside the dialog and scroll into view; closing returns focus to the originating control. Background scrolling is locked while overlays are open.
 
 TypeScript, lint, 37 unit/database tests, the server build and Pages export passed. Eleven local browser tests and six static Pages tests passed. New coverage visits all eleven main navigation screens in Hebrew and English at 320, 390, 768 and 1440px, checks page overflow and icon bounds, reaches settings on a short phone, and exercises invalid-date feedback without saving. Static tests also check signed-in header actions at 320/390px. Desktop and mobile screenshots were visually reviewed. Supabase responses in static tests are mocked; no authentication emails or live private records were used.
+
+## מסע הטבע והים 2027 — 31 באוקטובר 2026
+
+- בדיקת המידע המקומי לפני העדכון: ארבע טיוטות הזמנה ללא מספר אישור או תשלום, 21 משימות, עשרה מעברים, ללא הוצאות וללא צלילות שבוצעו. הנתונים הפרטיים בענן לא נקראו באמצעות הרשאת ניהול.
+- המיגרציה יושמה מקומית מתוך הממשק, לאחר הורדת גיבוי אל `.data/backups/` שאינו במעקב Git. שמונה התחנות ו־27 המשימות נשמרו לאחר רענון; טיוטות קודמות נשמרו בארכיון.
+- 46 בדיקות יחידה/נתונים עברו. נוספו בדיקות למיגרציה חוזרת ללא כפילות, שימור תשלום ואישור, הסרת בליז מהתכנון הפעיל בלי ביטול הזמנה, לילות צ׳ק־אאוט, חפיפות, תאריכים גמישים, שינוי משימות יחסיות בלבד, סטטוסי הזמנות חדשים, ביטול חינם, חלופות, החזרים, הוצאות צפויות ומרווח צלילה–טיסה שאינו מומצא.
+- 16 בדיקות דפדפן מקומיות עברו, כולל השלמה/דחייה לאחר רענון, שינוי תאריך בטלפון, גרירה אמיתית במחשב עם בדיקת שינוי לפני שמירה, שימור הזמנה מאושרת, פרופיל צלילה, תקציבי משנה וערכי סטטוס בעורכים. בדיקות פריסת המסכים סורקות את כל 13 מסכי הניווט ב־320, 390, 768 ו־1440 פיקסלים בעברית ובאנגלית.
+- שבע בדיקות האתר הסטטי עברו, כולל תהליך שדרוג של חשבון מדומה קיים: ללא שמירה לפני הורדת גיבוי, שמירה עם בדיקת גרסה, שימור הזמנה ותשלום ורענון ללא כפילות. תגובות Supabase מדומות; זו אינה בדיקה של רשומות החשבון האמיתיות ואינה שולחת דוא״ל.
+- TypeScript, lint, בניית השרת והייצוא ל־GitHub Pages עברו. בדיקת Deno של שתי פונקציות הרקע עברה לאחר הוספת תמיכה בסטטוסים החדשים לתזכורות האופציונליות.
+- צילומי מסך של מרכז ההזמנות, היומן, התקציב, המבט הכללי והרפתקאות ימיות נבדקו חזותית במחשב ובטלפון. פרטי מפעילים, מחירים, זמני מעבר, אישורי הזמנה ושעות צלילה/טיסה שלא ידועים נשארו להשלמה.
+
+לשימוש, למידע שנשמר ולפרטים החסרים ראו [עדכון המסע 2027](TRIP_2027.md). הפריסה הציבורית והחלת העדכון על הרשומות האמיתיות בחשבון דורשות בדיקה נפרדת מהבדיקות המדומות.

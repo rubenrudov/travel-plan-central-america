@@ -1,3 +1,4 @@
+import { isActive } from "./booking-status";
 import { Entry, Kind, str } from "./model";
 export type Point = [number, number];
 export type MapTarget = {
@@ -77,9 +78,7 @@ export function transportMode(type: string): MapLeg["mode"] {
 export function mapPlan(records: Record<Kind, Entry[]>) {
   const targets: MapTarget[] = [],
     unresolved: string[] = [];
-  const destinations = records.destinations.filter(
-    (r) => r.status !== "Cancelled",
-  );
+  const destinations = records.destinations.filter(isActive);
   for (const d of destinations) {
     const query = [d.title, str(d, "country")].filter(Boolean).join(", ");
     targets.push({
@@ -93,10 +92,7 @@ export function mapPlan(records: Record<Kind, Entry[]>) {
     });
   }
   for (const b of records.bookings.filter(
-    (b) =>
-      b.category === "Accommodation" &&
-      b.status !== "Cancelled" &&
-      b.stayAddress,
+    (b) => b.category === "Accommodation" && isActive(b) && b.stayAddress,
   )) {
     const query = str(b, "stayAddress");
     targets.push({
@@ -147,7 +143,7 @@ export function mapPlan(records: Record<Kind, Entry[]>) {
   };
   const legs: MapLeg[] = [];
   const linkedPairs = new Set<string>();
-  for (const leg of records.transport.filter((l) => l.status !== "Cancelled")) {
+  for (const leg of records.transport.filter(isActive)) {
     const from = endpoint(leg, "from"),
       to = endpoint(leg, "to");
     if (from && to) {
@@ -170,7 +166,7 @@ export function mapPlan(records: Record<Kind, Entry[]>) {
     }
   }
   const sequence = records.segments
-    .filter((s) => s.status !== "Cancelled")
+    .filter(isActive)
     .map((s) =>
       targets.find(
         (t) => t.kind === "destinations" && t.id === s.destinationId,

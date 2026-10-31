@@ -11,7 +11,12 @@ export function recalculatePayments(
       if (!ids.includes(b.id)) return b;
       const paid =
         records.expenses
-          .filter((x) => x.bookingId === b.id && x.status !== "Cancelled")
+          .filter(
+            (x) =>
+              x.bookingId === b.id &&
+              x.status !== "Cancelled" &&
+              x.expenseKind !== "estimate",
+          )
           .reduce((s, x) => s + cost(x, expedition), 0) /
         (num(b, "rate") || expedition.rates[str(b, "currency")] || 1);
       return {

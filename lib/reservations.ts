@@ -1,5 +1,6 @@
 import { DateTime, IANAZone } from "luxon";
 import { Entry, Kind, str } from "./model";
+import { isActive, isExistingBooking } from "./booking-status";
 export function cancellationInstant(local: string, zone: string) {
   if (!(zone === "UTC" || zone.includes("/")) || !IANAZone.isValidZone(zone))
     throw Error("Choose a valid IANA timezone, e.g. America/Guatemala");
@@ -18,8 +19,8 @@ export function reminderAt(booking: Entry) {
   if (
     booking.cancellationPolicy !== "Free cancellation" ||
     booking.cancellationVerified !== true ||
-    booking.status === "Cancelled" ||
-    !["Booked", "Paid"].includes(booking.status) ||
+    !isActive(booking) ||
+    !isExistingBooking(booking) ||
     !booking.freeCancellationAt ||
     !IANAZone.isValidZone(str(booking, "cancellationTimezone"))
   )
@@ -68,7 +69,8 @@ export function currentStays(
     (b) =>
       b.category === "Accommodation" &&
       b.destinationId === destinationId &&
-      ["Booked", "Paid"].includes(b.status) &&
+      isActive(b) &&
+      isExistingBooking(b) &&
       !!b.stayAddress &&
       str(b, "date") <= date &&
       str(b, "end") > date,
